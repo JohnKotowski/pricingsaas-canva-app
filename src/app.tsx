@@ -145,11 +145,19 @@ export function App() {
         altText: { text: asset.name, decorative: false },
       };
 
+      // Create text element to add below the image
+      const textElement = {
+        type: "text" as const,
+        children: ["Imported from PricingSaas"],
+      };
+
       // Add to design using the same pattern as reference app
       if (features.isSupported(addElementAtPoint)) {
         await addElementAtPoint(imageElement);
+        await addElementAtPoint(textElement);
       } else if (features.isSupported(addElementAtCursor)) {
         await addElementAtCursor(imageElement);
+        await addElementAtCursor(textElement);
       } else {
         throw new Error("Image insertion not supported");
       }
