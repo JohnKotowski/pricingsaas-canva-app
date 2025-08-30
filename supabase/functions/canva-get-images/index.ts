@@ -86,8 +86,11 @@ serve(async (req: Request) => {
         id: String(asset.id),
         name: String(asset.title || '') || 'Untitled Asset',
         thumbnail: String(asset.cropped_image_url || asset.primary_image || asset.original_image_url || ''),
-        url: String(asset.canva_asset_id || asset.primary_image || asset.cropped_image_url || ''),
+        url: String(asset.primary_image || asset.cropped_image_url || ''),
         collection_name: String(asset.app_collections?.name || 'Unknown Collection'),
+        header: String(asset.header || ''),
+        subheader: String(asset.subheader || ''),
+        version: String(asset.version || ''),
       })) || [];
 
       return new Response(
@@ -177,33 +180,23 @@ serve(async (req: Request) => {
       }
 
       resources = assets?.map((asset: Record<string, unknown>, index: number) => {
-        // Check if this asset has a Canva asset ID
-        const canvaAssetId = String(asset.canva_asset_id || asset.asset_id || asset.canva_id || '');
-        
         // Get the thumbnail URL from cropped_image_url or other URL fields
         const thumbnailUrl = String(asset.cropped_image_url || asset.thumbnail_url || asset.url || asset.file_url || '');
         
-        // For the main URL, use Canva asset ID if available, otherwise use regular URLs
+        // For the main URL, use regular URLs or placeholders
+        const assetUrl = String(asset.url || asset.file_url || '');
         let finalUrl = '';
         
-        if (canvaAssetId) {
-          // Use the Canva asset ID as the URL - Canva will handle this internally
-          finalUrl = canvaAssetId;
+        if (!assetUrl) {
+          const placeholderImages = [
+            'https://images.unsplash.com/photo-1717359652715-8ebc397c9fbc?w=400&h=300&fit=crop',
+            'https://images.unsplash.com/photo-1712047487421-b1092a2c2639?w=400&h=300&fit=crop',
+            'https://images.unsplash.com/photo-1709364299926-89b5b13d9d28?w=400&h=300&fit=crop',
+            'https://images.unsplash.com/photo-1721297016113-37ac6b6b6e69?w=400&h=300&fit=crop'
+          ];
+          finalUrl = placeholderImages[index % placeholderImages.length];
         } else {
-          // Fallback to regular URLs or placeholders
-          const assetUrl = String(asset.url || asset.file_url || '');
-          
-          if (!assetUrl) {
-            const placeholderImages = [
-              'https://images.unsplash.com/photo-1717359652715-8ebc397c9fbc?w=400&h=300&fit=crop',
-              'https://images.unsplash.com/photo-1712047487421-b1092a2c2639?w=400&h=300&fit=crop',
-              'https://images.unsplash.com/photo-1709364299926-89b5b13d9d28?w=400&h=300&fit=crop',
-              'https://images.unsplash.com/photo-1721297016113-37ac6b6b6e69?w=400&h=300&fit=crop'
-            ];
-            finalUrl = placeholderImages[index % placeholderImages.length];
-          } else {
-            finalUrl = assetUrl;
-          }
+          finalUrl = assetUrl;
         }
         
         return {
@@ -211,9 +204,11 @@ serve(async (req: Request) => {
           name: String(asset.title || asset.filename || '') || `Asset ${index + 1}`,
           url: finalUrl,
           thumbnail: thumbnailUrl,
-          canva_asset_id: canvaAssetId || undefined,
-          company_logo_url: String(asset.pages?.companies?.logo_url || ''),
-          company_slug: String(asset.pages?.companies?.slug || ''),
+          company_logo_url: String((asset.pages as any)?.companies?.logo_url || ''),
+          company_slug: String((asset.pages as any)?.companies?.slug || ''),
+          header: String(asset.header || ''),
+          subheader: String(asset.subheader || ''),
+          version: String(asset.version || ''),
           width: Number(asset.width) || undefined,
           height: Number(asset.height) || undefined,
           contentType: String(asset.content_type || asset.mime_type || 'image/jpeg'),
