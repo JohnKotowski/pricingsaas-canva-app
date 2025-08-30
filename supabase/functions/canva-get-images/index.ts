@@ -140,7 +140,16 @@ serve(async (req: Request) => {
       
       let assetsQuery = supabase
         .from('app_assets')
-        .select('*')
+        .select(`
+          *,
+          pages!inner(
+            company_id,
+            companies!inner(
+              logo_url,
+              slug
+            )
+          )
+        `)
         .eq('collection_id', collectionId);
 
       if (query) {
@@ -202,6 +211,9 @@ serve(async (req: Request) => {
           name: String(asset.title || asset.filename || '') || `Asset ${index + 1}`,
           url: finalUrl,
           thumbnail: thumbnailUrl,
+          canva_asset_id: canvaAssetId || undefined,
+          company_logo_url: String(asset.pages?.companies?.logo_url || ''),
+          company_slug: String(asset.pages?.companies?.slug || ''),
           width: Number(asset.width) || undefined,
           height: Number(asset.height) || undefined,
           contentType: String(asset.content_type || asset.mime_type || 'image/jpeg'),
