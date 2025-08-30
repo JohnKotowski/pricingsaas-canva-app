@@ -181,28 +181,19 @@ serve(async (req: Request) => {
 
       resources = assets?.map((asset: Record<string, unknown>, index: number) => {
         // Get the thumbnail URL from cropped_image_url or other URL fields
-        const thumbnailUrl = String(asset.cropped_image_url || asset.thumbnail_url || asset.url || asset.file_url || '');
+        const thumbnailUrl = String(asset.cropped_image_url || asset.primary_image || asset.original_image_url || '');
         
-        // For the main URL, use regular URLs or placeholders
-        const assetUrl = String(asset.url || asset.file_url || '');
-        let finalUrl = '';
+        // For the main URL, use cropped_image_url as primary choice
+        const assetUrl = String(asset.cropped_image_url || asset.primary_image || asset.original_image_url || '');
         
         if (!assetUrl) {
-          const placeholderImages = [
-            'https://images.unsplash.com/photo-1717359652715-8ebc397c9fbc?w=400&h=300&fit=crop',
-            'https://images.unsplash.com/photo-1712047487421-b1092a2c2639?w=400&h=300&fit=crop',
-            'https://images.unsplash.com/photo-1709364299926-89b5b13d9d28?w=400&h=300&fit=crop',
-            'https://images.unsplash.com/photo-1721297016113-37ac6b6b6e69?w=400&h=300&fit=crop'
-          ];
-          finalUrl = placeholderImages[index % placeholderImages.length];
-        } else {
-          finalUrl = assetUrl;
+          console.warn(`No image URL found for asset ${asset.id}`);
         }
         
         return {
           id: String(asset.id),
           name: String(asset.title || asset.filename || '') || `Asset ${index + 1}`,
-          url: finalUrl,
+          url: assetUrl,
           thumbnail: thumbnailUrl,
           company_logo_url: String((asset.pages as any)?.companies?.logo_url || ''),
           company_slug: String((asset.pages as any)?.companies?.slug || ''),

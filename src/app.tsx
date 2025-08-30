@@ -181,10 +181,10 @@ export function App() {
         throw new Error(`Invalid image dimensions: width=${imageWidth}, left=${imageLeft}, top=${imageTop}`);
       }
 
-      // Use a guaranteed working image URL for testing
-      const imageUrl = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&h=400&fit=crop';
+      // Use the actual asset URL
+      const imageUrl = asset.url || asset.thumbnail;
       
-      console.log('Using guaranteed working image URL for testing:', imageUrl);
+      console.log('Using asset image URL:', imageUrl);
       
       console.log('Uploading image from URL:', imageUrl);
       
@@ -202,8 +202,8 @@ export function App() {
         aiDisclosure: "none",
       });
       
-      // Calculate height based on a reasonable aspect ratio (4:3)
-      const imageHeight = Math.round(imageWidth * 0.75); // 4:3 aspect ratio
+      // Use original aspect ratio
+      const imageHeight = imageWidth; // Will be adjusted by aspectRatio property
       
       imageElement = {
         type: "image" as const,
@@ -213,6 +213,7 @@ export function App() {
         left: imageLeft,
         width: imageWidth,
         height: imageHeight,
+        aspectRatio: "original",
       };
 
       // Upload and create logo element for top right corner
