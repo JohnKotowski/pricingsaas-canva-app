@@ -145,9 +145,10 @@ serve(async (req: Request) => {
         .from('app_assets')
         .select(`
           *,
-          pages!inner(
+          pages!app_assets_page_id_fkey(
             company_id,
-            companies!inner(
+            subslug,
+            companies!pages_company_id_fkey(
               logo_url,
               slug
             )
@@ -196,7 +197,8 @@ serve(async (req: Request) => {
           url: assetUrl,
           thumbnail: thumbnailUrl,
           company_logo_url: String((asset.pages as any)?.companies?.logo_url || ''),
-          company_slug: String((asset.pages as any)?.companies?.slug || ''),
+          company_slug: String((asset.pages as any)?.companies?.slug || '') + 
+                       (String((asset.pages as any)?.subslug || '') ? '.' + String((asset.pages as any)?.subslug || '') : ''),
           header: String(asset.header || ''),
           subheader: String(asset.subheader || ''),
           version: String(asset.version || ''),

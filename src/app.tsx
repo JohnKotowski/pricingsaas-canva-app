@@ -292,11 +292,14 @@ export function App() {
           const logoUrl = asset.company_logo_url.replace(/^http:\/\//, 'https://');
           console.log('Uploading company logo:', logoUrl);
           
+          // Detect MIME type from file extension
+          const mimeType = logoUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+          
           const companyLogoUploadResult = await upload({
             type: "image",
             thumbnailUrl: logoUrl,
             url: logoUrl,
-            mimeType: "image/jpeg", // Changed to jpeg as most logos are jpg
+            mimeType: mimeType,
             aiDisclosure: "none",
           });
           
