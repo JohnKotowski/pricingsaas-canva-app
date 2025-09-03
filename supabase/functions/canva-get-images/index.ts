@@ -152,6 +152,14 @@ serve(async (req: Request) => {
               logo_url,
               slug
             )
+          ),
+          secondary_pages:pages!app_assets_secondary_page_id_fkey(
+            company_id,
+            subslug,
+            companies!pages_company_id_fkey(
+              logo_url,
+              slug
+            )
           )
         `)
         .eq('collection_id', collectionId);
@@ -191,6 +199,10 @@ serve(async (req: Request) => {
           console.warn(`No image URL found for asset ${asset.id}`);
         }
         
+        // Use type and comparison_mode fields
+        const assetType = String(asset.type || 'simple');
+        const comparisonMode = String(asset.comparison_mode || 'single');
+        
         return {
           id: String(asset.id),
           name: String(asset.title || asset.filename || '') || `Asset ${index + 1}`,
@@ -202,6 +214,16 @@ serve(async (req: Request) => {
           header: String(asset.header || ''),
           subheader: String(asset.subheader || ''),
           version: String(asset.version || ''),
+          secondary_version: String(asset.secondary_version || ''),
+          crop_aspect_ratio: String(asset.crop_aspect_ratio || '1:1'),
+          primary_markup_url: String(asset.primary_markup_url || ''),
+          secondary_markup_url: String(asset.secondary_markup_url || ''),
+          asset_type: assetType,
+          comparison_mode: comparisonMode,
+          // Secondary page company info (if different from primary)
+          secondary_company_logo_url: String((asset.secondary_pages as any)?.companies?.logo_url || ''),
+          secondary_company_slug: String((asset.secondary_pages as any)?.companies?.slug || '') + 
+                                 (String((asset.secondary_pages as any)?.subslug || '') ? '.' + String((asset.secondary_pages as any)?.subslug || '') : ''),
           width: Number(asset.width) || undefined,
           height: Number(asset.height) || undefined,
           contentType: String(asset.content_type || asset.mime_type || 'image/jpeg'),

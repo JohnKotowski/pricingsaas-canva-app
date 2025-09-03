@@ -17,6 +17,14 @@ interface Asset {
   header?: string;
   subheader?: string;
   version?: string;
+  secondary_version?: string;
+  crop_aspect_ratio?: string;
+  primary_markup_url?: string;
+  secondary_markup_url?: string;
+  asset_type?: string;
+  comparison_mode?: string;
+  secondary_company_logo_url?: string;
+  secondary_company_slug?: string;
 }
 
 interface Collection {
@@ -161,60 +169,175 @@ export function App() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  // Helper function to parse aspect ratio string (e.g., "16:9", "1.91:1") into width/height ratio
+  const parseAspectRatio = (aspectRatio: string): number => {
+    if (!aspectRatio) return 1; // Default to 1:1 (square)
+    
+    // Handle decimal format like "1.91:1"
+    if (aspectRatio.includes(':')) {
+      const [widthStr, heightStr] = aspectRatio.split(':');
+      const width = parseFloat(widthStr);
+      const height = parseFloat(heightStr);
+      return width / height;
+    }
+    
+    // Handle simple decimal format like "1.91"
+    return parseFloat(aspectRatio) || 1;
+  };
+
   const insertAsset = async (asset: Asset) => {
     try {
       setError(null);
       
       console.log('Inserting asset:', asset);
       
-      let imageElement;
+      // Parse aspect ratio and determine layout
+      const aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
+      const assetType = asset.asset_type || 'simple';
+      const comparisonMode = asset.comparison_mode || 'single';
       
-      // Always upload images from thumbnail URL
+      // Determine if we should show dual images based on type and secondary URL availability
+      const hasDualImages = assetType === 'diff' && asset.secondary_markup_url && asset.secondary_markup_url.trim() !== '';
       
-      // Calculate image size and position (63% width, y=200)
-      const imageWidth = Math.round(designWidth * 0.63); // 63% of design width, rounded
-      const imageLeft = Math.round((designWidth - imageWidth) / 2); // Center horizontally, rounded
-      const imageTop = 200; // Fixed y position at 200px
+      console.log('Asset type:', assetType, 'Comparison mode:', comparisonMode, 'Dual images:', hasDualImages);
       
-      // Validate dimensions are positive and within reasonable bounds
-      if (imageWidth <= 0 || imageLeft < 0 || imageTop < 0) {
-        throw new Error(`Invalid image dimensions: width=${imageWidth}, left=${imageLeft}, top=${imageTop}`);
+      // Check minimum viable page size
+      const minWidth = 400;
+      const minHeight = 300;
+      if (designWidth < minWidth || designHeight < minHeight) {
+        throw new Error(`Page too small. Minimum size: ${minWidth}x${minHeight}, current: ${designWidth}x${designHeight}`);
+      }
+      
+      // Calculate bounding box for images (76.23% width = 69.3% + 10%, y=200)
+      const boundingWidth = Math.round(designWidth * 0.7623); // 69.3% * 1.1 = 76.23%
+      const boundingLeft = Math.round((designWidth - boundingWidth) / 2);
+      const boundingTop = 200;
+      const boundingHeight = Math.round(boundingWidth / aspectRatio);
+      
+      console.log('Bounding box:', { boundingWidth, boundingLeft, boundingTop, boundingHeight });
+      console.log('Design dimensions:', { designWidth, designHeight });
+      
+      // Validate dimensions and ensure elements fit within page bounds
+      if (boundingWidth <= 0 || boundingLeft < 0 || boundingTop < 0 || boundingHeight <= 0) {
+        throw new Error(`Invalid bounding dimensions: width=${boundingWidth}, left=${boundingLeft}, top=${boundingTop}, height=${boundingHeight}`);
+      }
+      
+      // Check if bounding box fits within page
+      if (boundingLeft + boundingWidth > designWidth || boundingTop + boundingHeight > designHeight) {
+        throw new Error(`Elements exceed page bounds. Page: ${designWidth}x${designHeight}, Bounding box: ${boundingWidth}x${boundingHeight} at (${boundingLeft}, ${boundingTop})`);
       }
 
-      // Use the actual asset URL
-      const imageUrl = asset.url || asset.thumbnail;
+      // Determine image URLs to use
+      const primaryUrl = asset.primary_markup_url || asset.url || asset.thumbnail;
+      const secondaryUrl = hasDualImages ? asset.secondary_markup_url : null;
       
-      console.log('Using asset image URL:', imageUrl);
-      
-      console.log('Uploading image from URL:', imageUrl);
-      
-      // Ensure URL is properly formatted
-      let validImageUrl = imageUrl;
-      if (!validImageUrl.startsWith('http://') && !validImageUrl.startsWith('https://')) {
-        validImageUrl = 'https://' + validImageUrl;
+      if (!primaryUrl) {
+        throw new Error('No primary image URL available');
       }
       
-      const uploadResult = await upload({
+      console.log('Primary URL:', primaryUrl, 'Secondary URL:', secondaryUrl);
+      
+      // Upload primary image
+      let validPrimaryUrl = primaryUrl;
+      if (!validPrimaryUrl.startsWith('http://') && !validPrimaryUrl.startsWith('https://')) {
+        validPrimaryUrl = 'https://' + validPrimaryUrl;
+      }
+      
+      const primaryUploadResult = await upload({
         type: "image",
-        thumbnailUrl: validImageUrl,
-        url: validImageUrl,
+        thumbnailUrl: validPrimaryUrl,
+        url: validPrimaryUrl,
         mimeType: "image/jpeg", 
         aiDisclosure: "none",
       });
       
-      // Use original aspect ratio
-      const imageHeight = imageWidth; // Will be adjusted by aspectRatio property
+      let imageElements: any[] = [];
       
-      imageElement = {
-        type: "image" as const,
-        ref: uploadResult.ref,
-        altText: { text: asset.name, decorative: false },
-        top: imageTop,
-        left: imageLeft,
-        width: imageWidth,
-        height: imageHeight,
-        aspectRatio: "original",
-      };
+      if (!hasDualImages) {
+        // Single image - use full bounding box
+        const imageElement = {
+          type: "image" as const,
+          ref: primaryUploadResult.ref,
+          altText: { text: asset.name, decorative: false },
+          top: boundingTop,
+          left: boundingLeft,
+          width: boundingWidth,
+          height: boundingHeight,
+        };
+        imageElements.push(imageElement);
+      } else {
+        // Dual images - upload secondary and arrange based on layout
+        let validSecondaryUrl = secondaryUrl!;
+        if (!validSecondaryUrl.startsWith('http://') && !validSecondaryUrl.startsWith('https://')) {
+          validSecondaryUrl = 'https://' + validSecondaryUrl;
+        }
+        
+        const secondaryUploadResult = await upload({
+          type: "image",
+          thumbnailUrl: validSecondaryUrl,
+          url: validSecondaryUrl,
+          mimeType: "image/jpeg", 
+          aiDisclosure: "none",
+        });
+        
+        if (comparisonMode === 'stacked') {
+          // Stacked layout - each image takes half the height
+          const imageHeight = Math.round(boundingHeight / 2);
+          
+          const primaryElement = {
+            type: "image" as const,
+            ref: primaryUploadResult.ref,
+            altText: { text: `${asset.name} - Primary`, decorative: false },
+            top: boundingTop,
+            left: boundingLeft,
+            width: boundingWidth,
+            height: imageHeight,
+          };
+          
+          const secondaryElement = {
+            type: "image" as const,
+            ref: secondaryUploadResult.ref,
+            altText: { text: `${asset.name} - Secondary`, decorative: false },
+            top: boundingTop + imageHeight,
+            left: boundingLeft,
+            width: boundingWidth,
+            height: imageHeight,
+          };
+          
+          imageElements.push(primaryElement, secondaryElement);
+        } else {
+          // Side-by-side layout - center images at 30% and 70% width marks
+          const imageWidth = Math.round(boundingWidth / 2);
+          
+          // Calculate positions to center images at 30% and 70% of design width
+          const primaryCenterX = designWidth * 0.30;
+          const secondaryCenterX = designWidth * 0.70;
+          const primaryLeft = Math.round(primaryCenterX - (imageWidth / 2));
+          const secondaryLeft = Math.round(secondaryCenterX - (imageWidth / 2));
+          
+          const primaryElement = {
+            type: "image" as const,
+            ref: primaryUploadResult.ref,
+            altText: { text: `${asset.name} - Primary`, decorative: false },
+            top: boundingTop,
+            left: primaryLeft,
+            width: imageWidth,
+            height: boundingHeight,
+          };
+          
+          const secondaryElement = {
+            type: "image" as const,
+            ref: secondaryUploadResult.ref,
+            altText: { text: `${asset.name} - Secondary`, decorative: false },
+            top: boundingTop,
+            left: secondaryLeft,
+            width: imageWidth,
+            height: boundingHeight,
+          };
+          
+          imageElements.push(primaryElement, secondaryElement);
+        }
+      }
 
       // Upload and create logo element for top right corner
       const logoUrl = "https://res.cloudinary.com/dd6dkaan9/image/upload/v1756551917/WordmarkWhite_tv0jl9.png";
@@ -258,9 +381,18 @@ export function App() {
         color: "#F7F7F7"
       });
 
-      // Create footer rectangle element
-      const footerHeight = 75; // 75px tall as requested
-      const footerRectangleTop = designHeight - footerHeight; // 75px from bottom
+      // Create footer rectangle element with bounds checking
+      const footerHeight = Math.min(75, designHeight - 50); // Cap at 75px or leave 50px margin from top
+      const footerRectangleTop = Math.max(50, designHeight - footerHeight); // Ensure at least 50px from top
+      
+      // Validate footer positioning
+      if (footerRectangleTop + footerHeight > designHeight) {
+        console.warn(`Footer rectangle would exceed page bounds (${footerRectangleTop + footerHeight} > ${designHeight}), skipping footer`);
+        throw new Error(`Page too small for footer. Need at least ${footerHeight + 50}px height, got ${designHeight}px`);
+      }
+      
+      console.log('Footer positioning:', { footerHeight, footerRectangleTop, designHeight });
+      
       const footerRectangleElement = {
         type: "shape" as const,
         paths: [
@@ -393,65 +525,174 @@ export function App() {
         };
       }
 
-      // Create date pill element (bottom right corner)
-      let datePillElement = null;
-      let datePillRectangleElement = null;
-      if (asset.version && asset.version.trim()) {
-        const formattedDate = formatVersionDate(asset.version.trim());
-        
-        if (formattedDate) {
-          // Position date pill using exact coordinates for 1080x1080, scale for other sizes
-          let pillLeft: number, pillTop: number, pillWidth: number, pillHeight: number;
+      // Create date pill elements (bottom right corner) - handle both single and dual versions
+      let datePillElements: any[] = [];
+      let datePillRectangleElements: any[] = [];
+      
+      const primaryVersion = asset.version && asset.version.trim();
+      const secondaryVersion = asset.secondary_version && asset.secondary_version.trim();
+      
+      if (primaryVersion || secondaryVersion) {
+        if (!hasDualImages || !secondaryVersion) {
+          // Single version pill (either single image or dual images with only primary version)
+          const versionToShow = primaryVersion || secondaryVersion;
+          const formattedDate = formatVersionDate(versionToShow!);
           
-          if (designWidth === 1080 && designHeight === 1080) {
-            // Use exact coordinates from design for 1080x1080
-            pillLeft = 480; // X coordinate from design
-            pillTop = 911.3; // Y coordinate from design
-            pillWidth = 120; // Width from design
-            pillHeight = 32; // Height from design
-          } else {
-            // Scale coordinates proportionally for other dimensions
-            pillLeft = (480 / 1080) * designWidth;
-            pillTop = (911.3 / 1080) * designHeight;
-            pillWidth = (120 / 1080) * designWidth;
-            pillHeight = (32 / 1080) * designHeight;
-          }
-          
-          // Create background rectangle for date pill
-          datePillRectangleElement = {
-            type: "shape" as const,
-            paths: [
-              {
-                d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
-                fill: {
-                  color: "#FFFFFF"
-                }
-              }
-            ],
-            top: pillTop,
-            left: pillLeft,
-            width: pillWidth,
-            height: pillHeight,
-            viewBox: {
-              top: 0,
-              left: 0,
-              width: pillWidth,
-              height: pillHeight
+          if (formattedDate) {
+            let pillLeft: number, pillTop: number, pillWidth: number, pillHeight: number;
+            
+            if (designWidth === 1080 && designHeight === 1080) {
+              pillLeft = 480;
+              pillTop = 911.3;
+              pillWidth = 120;
+              pillHeight = 32;
+            } else {
+              pillLeft = (480 / 1080) * designWidth;
+              pillTop = (911.3 / 1080) * designHeight;
+              pillWidth = (120 / 1080) * designWidth;
+              pillHeight = (32 / 1080) * designHeight;
             }
-          };
+            
+            datePillRectangleElements.push({
+              type: "shape" as const,
+              paths: [
+                {
+                  d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
+                  fill: { color: "#FFFFFF" }
+                }
+              ],
+              top: pillTop,
+              left: pillLeft,
+              width: pillWidth,
+              height: pillHeight,
+              viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
+            });
 
-          // Create date text element
-          datePillElement = {
-            type: "text" as const,
-            children: [formattedDate],
-            top: pillTop + (pillHeight / 2) - 7, // Center vertically in pill (text height ~14px)
-            left: pillLeft,
-            width: pillWidth,
-            fontSize: 14,
-            fontWeight: "normal" as const,
-            color: "#000000",
-            textAlign: "center" as const,
-            };
+            datePillElements.push({
+              type: "text" as const,
+              children: [formattedDate],
+              top: pillTop + (pillHeight / 2) - 7,
+              left: pillLeft,
+              width: pillWidth,
+              fontSize: 14,
+              fontWeight: "normal" as const,
+              color: "#000000",
+              textAlign: "center" as const,
+            });
+          }
+        } else {
+          // Dual version pills - position based on layout mode (stacked vs side-by-side)
+          const primaryFormattedDate = formatVersionDate(primaryVersion);
+          const secondaryFormattedDate = formatVersionDate(secondaryVersion);
+          
+          if (primaryFormattedDate || secondaryFormattedDate) {
+            let pillWidth: number, pillHeight: number;
+            let primaryPillTop: number, primaryPillLeft: number;
+            let secondaryPillTop: number, secondaryPillLeft: number;
+            
+            if (designWidth === 1080 && designHeight === 1080) {
+              pillWidth = 120; // Keep original pill width
+              pillHeight = 32;
+              
+              if (comparisonMode === 'stacked') {
+                // Stacked layout - position pills under their respective images
+                const centerX = designWidth / 2;
+                primaryPillLeft = centerX - (pillWidth / 2);
+                secondaryPillLeft = centerX - (pillWidth / 2);
+                
+                // Position under the images (images are at boundingTop with boundingHeight/2 each)
+                const imageHeight = Math.round(boundingHeight / 2);
+                primaryPillTop = boundingTop + imageHeight - 40; // 40px from bottom of primary image
+                secondaryPillTop = boundingTop + boundingHeight - 40; // 40px from bottom of secondary image
+              } else {
+                // Side-by-side layout - position at 30% and 70% width points
+                primaryPillLeft = (designWidth * 0.30) - (pillWidth / 2);
+                secondaryPillLeft = (designWidth * 0.70) - (pillWidth / 2);
+                primaryPillTop = 911.3;
+                secondaryPillTop = 911.3;
+              }
+            } else {
+              pillWidth = (120 / 1080) * designWidth;
+              pillHeight = (32 / 1080) * designHeight;
+              
+              if (comparisonMode === 'stacked') {
+                // Stacked layout - center horizontally, position under images
+                const centerX = designWidth / 2;
+                primaryPillLeft = centerX - (pillWidth / 2);
+                secondaryPillLeft = centerX - (pillWidth / 2);
+                
+                const imageHeight = Math.round(boundingHeight / 2);
+                primaryPillTop = boundingTop + imageHeight - (40 / 1080) * designHeight;
+                secondaryPillTop = boundingTop + boundingHeight - (40 / 1080) * designHeight;
+              } else {
+                // Side-by-side layout - position at 30% and 70% width points
+                primaryPillLeft = (designWidth * 0.30) - (pillWidth / 2);
+                secondaryPillLeft = (designWidth * 0.70) - (pillWidth / 2);
+                primaryPillTop = (911.3 / 1080) * designHeight;
+                secondaryPillTop = (911.3 / 1080) * designHeight;
+              }
+            }
+            
+            // Primary version pill
+            if (primaryFormattedDate) {
+              datePillRectangleElements.push({
+                type: "shape" as const,
+                paths: [
+                  {
+                    d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
+                    fill: { color: "#FFFFFF" }
+                  }
+                ],
+                top: primaryPillTop,
+                left: primaryPillLeft,
+                width: pillWidth,
+                height: pillHeight,
+                viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
+              });
+
+              datePillElements.push({
+                type: "text" as const,
+                children: [primaryFormattedDate],
+                top: primaryPillTop + (pillHeight / 2) - 7,
+                left: primaryPillLeft,
+                width: pillWidth,
+                fontSize: 14,
+                fontWeight: "normal" as const,
+                color: "#000000",
+                textAlign: "center" as const,
+              });
+            }
+            
+            // Secondary version pill
+            if (secondaryFormattedDate) {
+              datePillRectangleElements.push({
+                type: "shape" as const,
+                paths: [
+                  {
+                    d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
+                    fill: { color: "#FFFFFF" } // Same white background as primary
+                  }
+                ],
+                top: secondaryPillTop,
+                left: secondaryPillLeft,
+                width: pillWidth,
+                height: pillHeight,
+                viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
+              });
+
+              datePillElements.push({
+                type: "text" as const,
+                children: [secondaryFormattedDate],
+                top: secondaryPillTop + (pillHeight / 2) - 7,
+                left: secondaryPillLeft,
+                width: pillWidth,
+                fontSize: 14,
+                fontWeight: "normal" as const,
+                color: "#000000",
+                textAlign: "center" as const,
+              });
+            }
+          }
         }
       }
 
@@ -553,13 +794,16 @@ export function App() {
 
       // Add to design using the same pattern as reference app
       if (features.isSupported(addElementAtPoint)) {
-        try {
-          console.log('DEBUG: Adding image element', imageElement);
-          await addElementAtPoint(imageElement);
-          console.log('DEBUG: Image element added successfully');
-        } catch (err) {
-          console.error('ERROR: Failed to add image element:', err);
-          throw new Error(`Failed to add image element: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        // Add all image elements
+        for (const [index, imageElement] of imageElements.entries()) {
+          try {
+            console.log(`DEBUG: Adding image element ${index + 1}`, imageElement);
+            await addElementAtPoint(imageElement);
+            console.log(`DEBUG: Image element ${index + 1} added successfully`);
+          } catch (err) {
+            console.error(`ERROR: Failed to add image element ${index + 1}:`, err);
+            throw new Error(`Failed to add image element ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          }
         }
         
         try {
@@ -638,30 +882,35 @@ export function App() {
           }
         }
         
-        // Add date pill (if available)
-        if (datePillRectangleElement) {
+        // Add date pill rectangles (if available)
+        for (const [index, rectangle] of datePillRectangleElements.entries()) {
           try {
-            console.log('DEBUG: Adding date pill rectangle');
-            await addElementAtPoint(datePillRectangleElement);
-            console.log('DEBUG: Date pill rectangle added successfully');
+            console.log(`DEBUG: Adding date pill rectangle ${index + 1}`);
+            await addElementAtPoint(rectangle);
+            console.log(`DEBUG: Date pill rectangle ${index + 1} added successfully`);
           } catch (err) {
-            console.error('ERROR: Failed to add date pill rectangle:', err);
-            throw new Error(`Failed to add date pill rectangle: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            console.error(`ERROR: Failed to add date pill rectangle ${index + 1}:`, err);
+            throw new Error(`Failed to add date pill rectangle ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        if (datePillElement) {
+        
+        // Add date pill texts (if available)
+        for (const [index, pill] of datePillElements.entries()) {
           try {
-            console.log('DEBUG: Adding date pill text');
-            await addElementAtPoint(datePillElement);
-            console.log('DEBUG: Date pill text added successfully');
+            console.log(`DEBUG: Adding date pill text ${index + 1}`);
+            await addElementAtPoint(pill);
+            console.log(`DEBUG: Date pill text ${index + 1} added successfully`);
           } catch (err) {
-            console.error('ERROR: Failed to add date pill text:', err);
-            throw new Error(`Failed to add date pill text: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            console.error(`ERROR: Failed to add date pill text ${index + 1}:`, err);
+            throw new Error(`Failed to add date pill text ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
         
       } else if (features.isSupported(addElementAtCursor)) {
-        await addElementAtCursor(imageElement);
+        // Add all image elements
+        for (const imageElement of imageElements) {
+          await addElementAtCursor(imageElement);
+        }
         await addElementAtCursor(footerRectangleElement);
         await addElementAtCursor(logoElement);
         if (companyLogoElement) {
@@ -677,11 +926,12 @@ export function App() {
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
         }
-        if (datePillRectangleElement) {
-          await addElementAtCursor(datePillRectangleElement);
+        // Add date pill elements
+        for (const rectangle of datePillRectangleElements) {
+          await addElementAtCursor(rectangle);
         }
-        if (datePillElement) {
-          await addElementAtCursor(datePillElement);
+        for (const pill of datePillElements) {
+          await addElementAtCursor(pill);
         }
       } else {
         throw new Error("Image insertion not supported");
