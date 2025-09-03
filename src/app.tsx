@@ -33,7 +33,10 @@ interface Collection {
   description?: string;
 }
 
+type TabType = 'collections' | 'settings';
+
 export function App() {
+  const [activeTab, setActiveTab] = useState<TabType>('collections');
   const [collections, setCollections] = useState<Collection[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
@@ -944,57 +947,217 @@ export function App() {
     }
   };
 
-  return (
-    <div className={styles.rootWrapper}>
-      <Rows spacing="2u">
-        {/* Header with conditional title and back button */}
-        <Box paddingX="3u" paddingY="2u">
-          {selectedCollection ? (
-            <Rows spacing="2u">
-              <Button 
-                variant="secondary" 
-                onClick={goBackToCollections} 
-                style={{ 
-                  alignSelf: 'flex-start',
-                  padding: '0.75u 1.5u',
-                  borderRadius: '8px',
-                }}
-              >
-                ← Collections
-              </Button>
+  const formatCollectionName = (name: string, maxWidth: number = 25): string => {
+    if (name.length <= maxWidth) {
+      // Pad with spaces if shorter than maxWidth
+      return name + '.'.repeat(maxWidth - name.length);
+    } else {
+      // Truncate and add dots if longer than maxWidth
+      return name.substring(0, maxWidth - 3) + '...';
+    }
+  };
+
+
+  const renderTabContent = () => {
+    if (activeTab === 'collections') {
+      return (
+        <>
+          {/* Collections Header */}
+          <Box paddingX="3u" paddingY="2u">
+            {selectedCollection ? (
+              <Rows spacing="2u">
+                <Button 
+                  variant="secondary" 
+                  onClick={goBackToCollections}
+                >
+                  ← Collections
+                </Button>
+                <Box>
+                  <Text size="large">
+                    {selectedCollection.name}
+                  </Text>
+                  <Text size="medium" tone="secondary">
+                    Click any image to add it to your design
+                  </Text>
+                </Box>
+              </Rows>
+            ) : (
               <Box>
-                <Text size="xlarge" weight="bold">
-                  {selectedCollection.name}
+                <Text size="large">
+                  Your Collections
                 </Text>
                 <Text size="medium" tone="secondary">
-                  Click any image to add it to your design
+                  Select a collection to browse its images
                 </Text>
               </Box>
-            </Rows>
-          ) : (
-            <Box>
-              <Text size="xlarge" weight="bold">
-                Your Collections
-              </Text>
-              <Text size="medium" tone="secondary">
-                Select a collection to browse its images
-              </Text>
-            </Box>
-          )}
-        </Box>
+            )}
+          </Box>
 
-        {/* Design dimensions controls */}
+          {/* Collections Content */}
+          {loading ? (
+            <Box paddingX="2u" paddingY="4u">
+              <LoadingIndicator size="medium" />
+            </Box>
+          ) : selectedCollection ? (
+            /* Asset grid view */
+            assets.length > 0 ? (
+              <Box paddingX="4u" paddingY="3u">
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: '24px',
+                  padding: '16px 0'
+                }}>
+                  {assets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      style={{
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        transition: 'all 0.2s ease',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
+                      }}
+                      onClick={() => insertAsset(asset)}
+                    >
+                      {/* Image thumbnail */}
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '200px',
+                          backgroundImage: asset.thumbnail ? `url(${asset.thumbnail})` : 'none',
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                          backgroundColor: asset.thumbnail ? 'transparent' : '#f8fafc',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          position: 'relative'
+                        }}
+                      >
+                        {!asset.thumbnail && (
+                          <Text size="small" tone="tertiary">
+                            No Preview Available
+                          </Text>
+                        )}
+                        {/* Hover overlay */}
+                        <div style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: 0,
+                          transition: 'opacity 0.2s ease',
+                          color: 'white',
+                          fontSize: '14px',
+                          fontWeight: '500'
+                        }}>
+                          Click to Insert
+                        </div>
+                      </div>
+                      
+                      {/* Asset details */}
+                      <div style={{ padding: '16px' }}>
+                        <div style={{ 
+                          fontWeight: '500',
+                          marginBottom: '4px',
+                          fontSize: '16px',
+                          color: '#1f2937'
+                        }}>
+                          {asset.name}
+                        </div>
+                        <Text size="small" tone="secondary">
+                          Ready to add to your design
+                        </Text>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Box>
+            ) : (
+              <Box paddingX="3u" paddingY="6u">
+                <Text tone="secondary">
+                  No assets found in this collection.
+                </Text>
+              </Box>
+            )
+          ) : (
+            /* Collections list view */
+            collections.length > 0 ? (
+              <Box paddingX="3u">
+                <Rows spacing="2u">
+                  {collections.map((collection) => (
+                    <Button
+                      key={collection.id}
+                      variant="tertiary"
+                      onClick={() => selectCollection(collection)}
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        padding: '16px',
+                        border: '2px solid #e5e7eb',
+                        borderRadius: '8px',
+                        textAlign: 'left',
+                        transition: 'all 0.2s ease',
+                        justifyContent: 'flex-start',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                        <div style={{ fontSize: '16px', lineHeight: '1', marginTop: '2px' }}>
+                          📁
+                        </div>
+                        <div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '14px' }}>
+                            {formatCollectionName(collection.name)}
+                          </div>
+                          {collection.description && (
+                            <div style={{ marginTop: '4px' }}>
+                              <Text size="small" tone="secondary">
+                                {collection.description}
+                              </Text>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Button>
+                  ))}
+                </Rows>
+              </Box>
+            ) : (
+              <Box paddingX="3u" paddingY="6u">
+                <Text tone="secondary">
+                  No collections found. Make sure your database has collections in the app_collections table.
+                </Text>
+              </Box>
+            )
+          )}
+        </>
+      );
+    }
+
+    if (activeTab === 'settings') {
+      return (
         <Box paddingX="3u">
-          <Box padding="2u" style={{ 
+          <div style={{ 
             backgroundColor: '#f8fafc', 
             border: '1px solid #e2e8f0', 
-            borderRadius: '8px' 
+            borderRadius: '8px',
+            padding: '16px'
           }}>
             <Rows spacing="2u">
-              <Text size="medium" weight="medium">Design Dimensions</Text>
-              <Grid columns="2" spacing="2u">
+              <Text size="medium">Design Dimensions</Text>
+              <Grid columns={2} spacing="2u">
                 <Box>
-                  <Text size="small" tone="secondary" style={{ marginBottom: '4px' }}>Width (px)</Text>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Width (px)</Text>
+                  </div>
                   <input
                     type="number"
                     value={designWidth}
@@ -1011,7 +1174,9 @@ export function App() {
                   />
                 </Box>
                 <Box>
-                  <Text size="small" tone="secondary" style={{ marginBottom: '4px' }}>Height (px)</Text>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Height (px)</Text>
+                  </div>
                   <input
                     type="number"
                     value={designHeight}
@@ -1032,148 +1197,54 @@ export function App() {
                 Logo will be positioned 32px from top-right corner
               </Text>
             </Rows>
-          </Box>
+          </div>
         </Box>
+      );
+    }
 
+    return null;
+  };
+
+  return (
+    <div className={styles.rootWrapper}>
+      <Rows spacing="2u">
+        {/* Tab Navigation */}
+        <Box paddingX="3u" paddingTop="2u">
+          <Grid columns={2} spacing="1u">
+            <Button
+              variant={activeTab === 'collections' ? 'primary' : 'tertiary'}
+              onClick={() => setActiveTab('collections')}
+            >
+              Collections
+            </Button>
+            <Button
+              variant={activeTab === 'settings' ? 'primary' : 'tertiary'}
+              onClick={() => setActiveTab('settings')}
+            >
+              Settings
+            </Button>
+          </Grid>
+        </Box>
 
         {/* Error display */}
         {error && (
           <Box paddingX="3u">
-            <Box 
-              padding="2u" 
-              style={{ 
-                backgroundColor: '#fef2f2', 
-                border: '2px solid #fca5a5', 
-                borderRadius: '12px' 
-              }}
-            >
-              <Text size="medium" weight="medium" style={{ color: '#dc2626' }}>
+            <div style={{ 
+              backgroundColor: '#fef2f2', 
+              border: '2px solid #fca5a5', 
+              borderRadius: '12px',
+              padding: '16px',
+              color: '#dc2626'
+            }}>
+              <Text size="medium">
                 ⚠️ {error}
               </Text>
-            </Box>
+            </div>
           </Box>
         )}
 
-        {/* Loading state */}
-        {loading ? (
-          <Box paddingX="2u" paddingY="4u">
-            <LoadingIndicator size="large" />
-          </Box>
-        ) : selectedCollection ? (
-          /* Asset grid view */
-          assets.length > 0 ? (
-            <Box paddingX="3u">
-              <Grid columns="2" spacing="3u">
-                {assets.map((asset) => (
-                  <Button
-                    key={asset.id}
-                    variant="tertiary"
-                    onClick={() => insertAsset(asset)}
-                    style={{
-                      height: 'auto',
-                      padding: '0',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      overflow: 'hidden',
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    <Box>
-                      {/* Image thumbnail */}
-                      <div
-                        style={{
-                          width: '100%',
-                          height: '160px',
-                          backgroundImage: asset.thumbnail ? `url(${asset.thumbnail})` : 'none',
-                          backgroundSize: 'cover',
-                          backgroundPosition: 'center',
-                          backgroundColor: asset.thumbnail ? 'transparent' : '#f9fafb',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        {!asset.thumbnail && (
-                          <Text size="small" tone="tertiary">
-                            No Preview
-                          </Text>
-                        )}
-                      </div>
-                      
-                      {/* Asset name */}
-                      <Box padding="2u">
-                        <Text size="medium" weight="medium" align="left">
-                          {asset.name}
-                        </Text>
-                        <Text size="small" tone="tertiary" align="left">
-                          Click to add to design
-                        </Text>
-                      </Box>
-                    </Box>
-                  </Button>
-                ))}
-              </Grid>
-            </Box>
-          ) : (
-            <Box paddingX="3u" paddingY="6u">
-              <Text align="center" tone="secondary">
-                No assets found in this collection.
-              </Text>
-            </Box>
-          )
-        ) : (
-          /* Collections grid view */
-          collections.length > 0 ? (
-            <Box paddingX="3u">
-              <Grid columns="2" spacing="3u">
-                {collections.map((collection) => (
-                  <Button
-                    key={collection.id}
-                    variant="tertiary"
-                    onClick={() => selectCollection(collection)}
-                    style={{
-                      height: 'auto',
-                      padding: '0',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '16px',
-                      textAlign: 'center',
-                      transition: 'all 0.2s ease',
-                      aspectRatio: '1',
-                      minHeight: '140px',
-                    }}
-                  >
-                    <Box padding="2u" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%' }}>
-                      <Rows spacing="2u" align="center">
-                        {/* Large folder icon */}
-                        <Text size="xxlarge" style={{ fontSize: '48px', lineHeight: '1' }}>
-                          📁
-                        </Text>
-                        
-                        {/* Collection name */}
-                        <Box>
-                          <Text size="medium" weight="bold" align="center">
-                            {collection.name}
-                          </Text>
-                          {collection.description && (
-                            <Text size="small" tone="secondary" align="center">
-                              {collection.description}
-                            </Text>
-                          )}
-                        </Box>
-                      </Rows>
-                    </Box>
-                  </Button>
-                ))}
-              </Grid>
-            </Box>
-          ) : (
-            <Box paddingX="3u" paddingY="6u">
-              <Text align="center" tone="secondary">
-                No collections found. Make sure your database has collections in the app_collections table.
-              </Text>
-            </Box>
-          )
-        )}
+        {/* Tab Content */}
+        {renderTabContent()}
       </Rows>
     </div>
   );
