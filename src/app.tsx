@@ -194,15 +194,55 @@ export function App() {
     return parseFloat(aspectRatio) || 1;
   };
 
-  // Helper function to convert Cloudinary PNG URLs to JPEG for better Canva compatibility
-  const convertCloudinaryPngToJpeg = (url: string): string => {
-    if (!url) return url;
+  // Helper function to convert PNG URLs to JPEG for better Canva compatibility
+  const convertPngToJpeg = (url: string): string => {
+    console.log('DEBUG convertPngToJpeg - Input URL:', url);
     
-    // Check if it's a Cloudinary URL ending with .png
-    if (url.includes('cloudinary.com') && url.endsWith('.png')) {
-      return url.replace('.png', '.jpeg');
+    if (!url) {
+      console.log('DEBUG convertPngToJpeg - Empty URL, returning as-is');
+      return url;
     }
     
+    // Convert any PNG URL to JPEG for better Canva compatibility (case insensitive)
+    const lowerUrl = url.toLowerCase();
+    if (lowerUrl.endsWith('.png') || lowerUrl.includes('.png?') || lowerUrl.includes('.png&')) {
+      console.log('DEBUG convertPngToJpeg - URL contains .png, converting...');
+      
+      if (url.includes('cloudinary.com')) {
+        console.log('DEBUG convertPngToJpeg - Cloudinary URL detected');
+        // For Cloudinary, we can use their format transformation
+        let convertedUrl = url;
+        if (url.includes('/upload/')) {
+          // Insert format transformation in Cloudinary URL
+          convertedUrl = url.replace('/upload/', '/upload/f_jpg/');
+          console.log('DEBUG convertPngToJpeg - Cloudinary f_jpg transformation:', convertedUrl);
+        } else {
+          // Fallback: simple extension replacement
+          convertedUrl = url.replace(/\.png/gi, '.jpeg');
+          console.log('DEBUG convertPngToJpeg - Cloudinary extension replacement:', convertedUrl);
+        }
+        return convertedUrl;
+      } else {
+        console.log('DEBUG convertPngToJpeg - Non-Cloudinary URL detected');
+        // For other services, try multiple approaches
+        let convertedUrl = url;
+        
+        // First try: Add format parameter
+        if (url.includes('?')) {
+          convertedUrl = url + '&format=jpeg';
+        } else {
+          convertedUrl = url + '?format=jpeg';
+        }
+        
+        // Also try changing extension
+        convertedUrl = convertedUrl.replace(/\.png/gi, '.jpg');
+        
+        console.log('DEBUG convertPngToJpeg - Non-Cloudinary conversion result:', convertedUrl);
+        return convertedUrl;
+      }
+    }
+    
+    console.log('DEBUG convertPngToJpeg - URL does not contain .png, returning as-is');
     return url;
   };
 
@@ -212,8 +252,6 @@ export function App() {
       
       console.log('Inserting asset:', asset);
       
-      // Parse aspect ratio and determine layout
-      const aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
       const assetType = asset.asset_type || asset.type || 'simple';
       const comparisonMode = asset.comparison_mode || 'single';
       
@@ -224,10 +262,57 @@ export function App() {
         (asset.secondary_markup_url?.trim() !== '' || asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
       
       // Determine image URLs to use with correct priority (including original URLs)
-      const primaryUrl = asset.primary_markup_url || asset.primary_cropped_url || asset.primary_original_url || asset.url || asset.thumbnail;
-      const secondaryUrl = hasDualImages ? (asset.secondary_markup_url || asset.secondary_cropped_url || asset.secondary_original_url) : null;
+      console.log('DEBUG URL SELECTION - Asset URLs:');
+      console.log('  primary_markup_url:', asset.primary_markup_url);
+      console.log('  primary_cropped_url:', asset.primary_cropped_url);
+      console.log('  primary_original_url:', asset.primary_original_url);
+      console.log('  secondary_markup_url:', asset.secondary_markup_url);
+      console.log('  secondary_cropped_url:', asset.secondary_cropped_url);
+      console.log('  secondary_original_url:', asset.secondary_original_url);
+      console.log('  url (fallback):', asset.url);
+      console.log('  thumbnail (fallback):', asset.thumbnail);
+      
+      // Prefer original URLs to avoid cropping
+      const primaryUrl = asset.primary_original_url || asset.primary_cropped_url || asset.primary_markup_url || asset.url || asset.thumbnail;
+      const secondaryUrl = hasDualImages ? (asset.secondary_original_url || asset.secondary_cropped_url || asset.secondary_markup_url) : null;
+      
+      console.log('DEBUG URL SELECTION - Selected URLs:');
+      console.log('  primaryUrl:', primaryUrl);
+      console.log('  secondaryUrl:', secondaryUrl);
+      console.log('  hasDualImages:', hasDualImages);
       
       console.log('Asset type:', assetType, 'Comparison mode:', comparisonMode, 'Dual images:', hasDualImages);
+      
+      // Parse aspect ratio and determine layout - use original image aspect ratio if available
+      let aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
+      
+      // Try to get original aspect ratio from the selected URLs
+      if (primaryUrl) {
+        try {
+          // Create a temporary image to get natural dimensions
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          
+          const originalAspectRatio = await new Promise<number>((resolve, reject) => {
+            img.onload = () => {
+              const ratio = img.naturalWidth / img.naturalHeight;
+              console.log('DEBUG - Image natural dimensions:', img.naturalWidth, 'x', img.naturalHeight, 'ratio:', ratio);
+              resolve(ratio);
+            };
+            img.onerror = () => {
+              console.log('DEBUG - Failed to load image for aspect ratio, using fallback');
+              resolve(aspectRatio); // fallback to crop aspect ratio
+            };
+            img.src = primaryUrl;
+          });
+          
+          aspectRatio = originalAspectRatio;
+          console.log('DEBUG - Using original aspect ratio:', aspectRatio);
+        } catch (error) {
+          console.log('DEBUG - Error getting original aspect ratio, using crop_aspect_ratio:', error);
+          // Keep the original aspectRatio from crop_aspect_ratio
+        }
+      }
       
       // Check minimum viable page size
       const minWidth = 400;
@@ -240,19 +325,38 @@ export function App() {
       const boundingWidth = Math.round(designWidth * 0.7623); // 69.3% * 1.1 = 76.23%
       const boundingLeft = Math.round((designWidth - boundingWidth) / 2);
       const boundingTop = 200;
-      const boundingHeight = Math.round(boundingWidth / aspectRatio);
+      const calculatedHeight = Math.round(boundingWidth / aspectRatio);
       
-      console.log('Bounding box:', { boundingWidth, boundingLeft, boundingTop, boundingHeight });
+      // Ensure the image fits within available page height, leaving space for footer and other elements
+      const maxAvailableHeight = designHeight - boundingTop - 150; // Leave 150px for footer and margins
+      const boundingHeight = Math.min(calculatedHeight, maxAvailableHeight);
+      
+      // If we had to constrain the height, adjust the width to maintain aspect ratio
+      const finalBoundingWidth = boundingHeight < calculatedHeight ? 
+        Math.round(boundingHeight * aspectRatio) : boundingWidth;
+      
+      console.log('Bounding box:', { 
+        originalWidth: boundingWidth,
+        finalWidth: finalBoundingWidth, 
+        boundingLeft, 
+        boundingTop, 
+        boundingHeight,
+        aspectRatio,
+        maxAvailableHeight
+      });
       console.log('Design dimensions:', { designWidth, designHeight });
       
       // Validate dimensions and ensure elements fit within page bounds
-      if (boundingWidth <= 0 || boundingLeft < 0 || boundingTop < 0 || boundingHeight <= 0) {
-        throw new Error(`Invalid bounding dimensions: width=${boundingWidth}, left=${boundingLeft}, top=${boundingTop}, height=${boundingHeight}`);
+      if (finalBoundingWidth <= 0 || boundingLeft < 0 || boundingTop < 0 || boundingHeight <= 0) {
+        throw new Error(`Invalid bounding dimensions: width=${finalBoundingWidth}, left=${boundingLeft}, top=${boundingTop}, height=${boundingHeight}`);
       }
       
+      // Recalculate left position if width was adjusted
+      const finalBoundingLeft = Math.round((designWidth - finalBoundingWidth) / 2);
+      
       // Check if bounding box fits within page
-      if (boundingLeft + boundingWidth > designWidth || boundingTop + boundingHeight > designHeight) {
-        throw new Error(`Elements exceed page bounds. Page: ${designWidth}x${designHeight}, Bounding box: ${boundingWidth}x${boundingHeight} at (${boundingLeft}, ${boundingTop})`);
+      if (finalBoundingLeft + finalBoundingWidth > designWidth || boundingTop + boundingHeight > designHeight) {
+        throw new Error(`Elements exceed page bounds. Page: ${designWidth}x${designHeight}, Bounding box: ${finalBoundingWidth}x${boundingHeight} at (${finalBoundingLeft}, ${boundingTop})`);
       }
       
       if (!primaryUrl) {
@@ -276,8 +380,10 @@ export function App() {
         validPrimaryUrl = 'https://' + validPrimaryUrl;
       }
       
-      // Convert PNG to JPEG for Cloudinary URLs to improve Canva compatibility
-      validPrimaryUrl = convertCloudinaryPngToJpeg(validPrimaryUrl);
+      // Convert PNG to JPEG for better Canva compatibility
+      console.log('DEBUG PRIMARY - Before conversion:', validPrimaryUrl);
+      validPrimaryUrl = convertPngToJpeg(validPrimaryUrl);
+      console.log('DEBUG PRIMARY - After conversion:', validPrimaryUrl);
       
       console.log('Final primary URL for upload:', validPrimaryUrl);
       
@@ -289,13 +395,36 @@ export function App() {
         aiDisclosure: "none",
       });
 
-      const primaryUploadResult = await upload({
-        type: "image",
-        thumbnailUrl: validPrimaryUrl,
-        url: validPrimaryUrl,
-        mimeType: "image/jpeg", 
-        aiDisclosure: "none",
-      });
+      let primaryUploadResult;
+      try {
+        primaryUploadResult = await upload({
+          type: "image",
+          thumbnailUrl: validPrimaryUrl,
+          url: validPrimaryUrl,
+          mimeType: "image/jpeg", 
+          aiDisclosure: "none",
+        });
+        console.log('DEBUG PRIMARY - Upload successful:', primaryUploadResult);
+      } catch (uploadError) {
+        console.log('DEBUG PRIMARY - JPEG upload failed, trying original URL:', uploadError);
+        
+        // Try with original primary URL
+        const originalPrimaryUrl = primaryUrl.startsWith('http') ? primaryUrl : 'https://' + primaryUrl;
+        console.log('DEBUG PRIMARY - Trying original URL:', originalPrimaryUrl);
+        
+        // Detect actual MIME type from URL
+        const actualMimeType = originalPrimaryUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+        console.log('DEBUG PRIMARY - Using MIME type:', actualMimeType);
+        
+        primaryUploadResult = await upload({
+          type: "image",
+          thumbnailUrl: originalPrimaryUrl,
+          url: originalPrimaryUrl,
+          mimeType: actualMimeType,
+          aiDisclosure: "none",
+        });
+        console.log('DEBUG PRIMARY - Original URL upload successful:', primaryUploadResult);
+      }
       
       console.log('Primary upload successful, ref:', primaryUploadResult.ref);
       
@@ -308,8 +437,8 @@ export function App() {
           ref: primaryUploadResult.ref,
           altText: { text: asset.name, decorative: false },
           top: boundingTop,
-          left: boundingLeft,
-          width: boundingWidth,
+          left: finalBoundingLeft,
+          width: finalBoundingWidth,
           height: boundingHeight,
         };
         imageElements.push(imageElement);
@@ -320,18 +449,49 @@ export function App() {
           validSecondaryUrl = 'https://' + validSecondaryUrl;
         }
         
-        // Convert PNG to JPEG for Cloudinary URLs to improve Canva compatibility
-        validSecondaryUrl = convertCloudinaryPngToJpeg(validSecondaryUrl);
+        // Convert PNG to JPEG for better Canva compatibility
+        console.log('DEBUG SECONDARY - Before conversion:', validSecondaryUrl);
+        validSecondaryUrl = convertPngToJpeg(validSecondaryUrl);
+        console.log('DEBUG SECONDARY - After conversion:', validSecondaryUrl);
         
         console.log('Final secondary URL for upload:', validSecondaryUrl);
         
-        const secondaryUploadResult = await upload({
+        console.log('DEBUG SECONDARY - Upload params:', {
           type: "image",
           thumbnailUrl: validSecondaryUrl,
           url: validSecondaryUrl,
           mimeType: "image/jpeg", 
           aiDisclosure: "none",
         });
+
+        // For secondary image, let's try original PNG first since conversion might be causing display issues
+        let secondaryUploadResult;
+        const originalSecondaryUrl = secondaryUrl!.startsWith('http') ? secondaryUrl! : 'https://' + secondaryUrl!;
+        
+        try {
+          // Try with original PNG URL first
+          console.log('DEBUG SECONDARY - Trying PNG upload with original URL:', originalSecondaryUrl);
+          secondaryUploadResult = await upload({
+            type: "image",
+            thumbnailUrl: originalSecondaryUrl,
+            url: originalSecondaryUrl,
+            mimeType: "image/png",
+            aiDisclosure: "none",
+          });
+          console.log('DEBUG SECONDARY - PNG upload successful:', secondaryUploadResult);
+        } catch (pngError) {
+          console.log('DEBUG SECONDARY - PNG upload failed, trying JPEG conversion:', pngError);
+          
+          // Fallback to JPEG conversion if PNG fails
+          secondaryUploadResult = await upload({
+            type: "image",
+            thumbnailUrl: validSecondaryUrl,
+            url: validSecondaryUrl,
+            mimeType: "image/jpeg", 
+            aiDisclosure: "none",
+          });
+          console.log('DEBUG SECONDARY - JPEG upload successful:', secondaryUploadResult);
+        }
         
         if (comparisonMode === 'stacked') {
           // Stacked layout - each image takes half the height
@@ -342,8 +502,8 @@ export function App() {
             ref: primaryUploadResult.ref,
             altText: { text: `${asset.name} - Primary`, decorative: false },
             top: boundingTop,
-            left: boundingLeft,
-            width: boundingWidth,
+            left: finalBoundingLeft,
+            width: finalBoundingWidth,
             height: imageHeight,
           };
           
@@ -352,15 +512,15 @@ export function App() {
             ref: secondaryUploadResult.ref,
             altText: { text: `${asset.name} - Secondary`, decorative: false },
             top: boundingTop + imageHeight,
-            left: boundingLeft,
-            width: boundingWidth,
+            left: finalBoundingLeft,
+            width: finalBoundingWidth,
             height: imageHeight,
           };
           
           imageElements.push(primaryElement, secondaryElement);
         } else {
           // Side-by-side layout - center images at 30% and 70% width marks
-          const imageWidth = Math.round(boundingWidth / 2);
+          const imageWidth = Math.round(finalBoundingWidth / 2);
           
           // Calculate positions to center images at 30% and 70% of design width
           const primaryCenterX = designWidth * 0.30;
@@ -440,11 +600,9 @@ export function App() {
       
       // Validate footer positioning
       if (footerRectangleTop + footerHeight > designHeight) {
-        console.warn(`Footer rectangle would exceed page bounds (${footerRectangleTop + footerHeight} > ${designHeight}), skipping footer`);
         throw new Error(`Page too small for footer. Need at least ${footerHeight + 50}px height, got ${designHeight}px`);
       }
       
-      console.log('Footer positioning:', { footerHeight, footerRectangleTop, designHeight });
       
       const footerRectangleElement = {
         type: "shape" as const,
@@ -475,7 +633,6 @@ export function App() {
         try {
           // Ensure HTTPS URL for Canva upload
           const logoUrl = asset.company_logo_url.replace(/^http:\/\//, 'https://');
-          console.log('Uploading company logo:', logoUrl);
           
           // Detect MIME type from file extension
           const mimeType = logoUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
@@ -511,12 +668,10 @@ export function App() {
             height: 38.2, // Height from design
           };
         } catch (err) {
-          console.log('Company logo upload failed, skipping:', err);
           // Continue without company logo if upload fails
         }
       }
 
-      console.log('Using default font for text elements');
 
       // Create header text element using exact coordinates for 1080x1080, scale for other sizes
       let headerElement = null;
@@ -764,14 +919,6 @@ export function App() {
         curatedByWidth = (149.8 / 1080) * designWidth;
       }
       
-      console.log('DEBUG: Curated by positioning:', {
-        designWidth,
-        designHeight,
-        curatedByLeft,
-        curatedByTop,
-        referenceLeft: 519.3,
-        referenceTop: 560.7,
-      });
       
       const curatedByElement = {
         type: "text" as const,
@@ -785,15 +932,6 @@ export function App() {
         textAlign: "end" as const,
       };
       
-      const curatedByFontSize = normalizeFontSize("curated by", 14);
-      console.log('DEBUG: Trying to add curated by element with properties:', {
-        fontSize: curatedByFontSize,
-        color: "#E4E4E4",
-        textAlign: "end",
-        position: { top: curatedByTop, left: curatedByLeft, width: 89.8 }
-      });
-      
-      console.log('DEBUG: Curated by element:', curatedByElement);
 
       // Create company slug text element (positioned at bottom for 1080x1080)
       let companySlugElement = null;
@@ -814,19 +952,6 @@ export function App() {
           slugWidth = (880.2 / 1080) * designWidth;
         }
         
-        const slugFontSize = normalizeFontSize("curated by", 14); // Same as curated by
-        console.log('DEBUG: Company slug positioning:', {
-          originalSlug: asset.company_slug,
-          formattedSlug,
-          designWidth,
-          designHeight,
-          slugLeft,
-          slugTop,
-          slugWidth,
-          slugFontSize,
-          referenceLeft: 65.5,
-          referenceTop: 560.7,
-          });
         
         companySlugElement = {
           type: "text" as const,
@@ -841,7 +966,6 @@ export function App() {
  // Use hardcoded Aspekta font
         };
         
-        console.log('DEBUG: Company slug element:', companySlugElement);
       }
 
 
