@@ -9,6 +9,7 @@ import * as styles from "./index.css";
 interface Asset {
   id: string;
   name: string;
+  slug?: string;
   thumbnail: string;
   url: string;
   collection_name?: string;
@@ -20,7 +21,12 @@ interface Asset {
   secondary_version?: string;
   crop_aspect_ratio?: string;
   primary_markup_url?: string;
+  primary_cropped_url?: string;
+  primary_original_url?: string;
   secondary_markup_url?: string;
+  secondary_cropped_url?: string;
+  secondary_original_url?: string;
+  type?: string;
   asset_type?: string;
   comparison_mode?: string;
   secondary_company_logo_url?: string;
@@ -188,6 +194,18 @@ export function App() {
     return parseFloat(aspectRatio) || 1;
   };
 
+  // Helper function to convert Cloudinary PNG URLs to JPEG for better Canva compatibility
+  const convertCloudinaryPngToJpeg = (url: string): string => {
+    if (!url) return url;
+    
+    // Check if it's a Cloudinary URL ending with .png
+    if (url.includes('cloudinary.com') && url.endsWith('.png')) {
+      return url.replace('.png', '.jpeg');
+    }
+    
+    return url;
+  };
+
   const insertAsset = async (asset: Asset) => {
     try {
       setError(null);
@@ -196,11 +214,18 @@ export function App() {
       
       // Parse aspect ratio and determine layout
       const aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
-      const assetType = asset.asset_type || 'simple';
+      const assetType = asset.asset_type || asset.type || 'simple';
       const comparisonMode = asset.comparison_mode || 'single';
       
       // Determine if we should show dual images based on type and secondary URL availability
-      const hasDualImages = assetType === 'diff' && asset.secondary_markup_url && asset.secondary_markup_url.trim() !== '';
+      // For 'diff' type assets, show dual images if secondary URL exists, regardless of comparison_mode
+      const hasDualImages = assetType === 'diff' && 
+        (asset.secondary_markup_url || asset.secondary_cropped_url || asset.secondary_original_url) && 
+        (asset.secondary_markup_url?.trim() !== '' || asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
+      
+      // Determine image URLs to use with correct priority (including original URLs)
+      const primaryUrl = asset.primary_markup_url || asset.primary_cropped_url || asset.primary_original_url || asset.url || asset.thumbnail;
+      const secondaryUrl = hasDualImages ? (asset.secondary_markup_url || asset.secondary_cropped_url || asset.secondary_original_url) : null;
       
       console.log('Asset type:', assetType, 'Comparison mode:', comparisonMode, 'Dual images:', hasDualImages);
       
@@ -229,16 +254,21 @@ export function App() {
       if (boundingLeft + boundingWidth > designWidth || boundingTop + boundingHeight > designHeight) {
         throw new Error(`Elements exceed page bounds. Page: ${designWidth}x${designHeight}, Bounding box: ${boundingWidth}x${boundingHeight} at (${boundingLeft}, ${boundingTop})`);
       }
-
-      // Determine image URLs to use
-      const primaryUrl = asset.primary_markup_url || asset.url || asset.thumbnail;
-      const secondaryUrl = hasDualImages ? asset.secondary_markup_url : null;
       
       if (!primaryUrl) {
         throw new Error('No primary image URL available');
       }
       
-      console.log('Primary URL:', primaryUrl, 'Secondary URL:', secondaryUrl);
+      console.log('URL priority check for asset:', asset.name);
+      console.log('  primary_original_url:', asset.primary_original_url);
+      console.log('  primary_markup_url:', asset.primary_markup_url);
+      console.log('  primary_cropped_url:', asset.primary_cropped_url);
+      console.log('  secondary_original_url:', asset.secondary_original_url);
+      console.log('  secondary_markup_url:', asset.secondary_markup_url);
+      console.log('  secondary_cropped_url:', asset.secondary_cropped_url);
+      console.log('  url (fallback):', asset.url);
+      console.log('  thumbnail (fallback):', asset.thumbnail);
+      console.log('Selected URLs -> Primary:', primaryUrl, 'Secondary:', secondaryUrl);
       
       // Upload primary image
       let validPrimaryUrl = primaryUrl;
@@ -246,6 +276,19 @@ export function App() {
         validPrimaryUrl = 'https://' + validPrimaryUrl;
       }
       
+      // Convert PNG to JPEG for Cloudinary URLs to improve Canva compatibility
+      validPrimaryUrl = convertCloudinaryPngToJpeg(validPrimaryUrl);
+      
+      console.log('Final primary URL for upload:', validPrimaryUrl);
+      
+      console.log('Attempting to upload primary image with params:', {
+        type: "image",
+        thumbnailUrl: validPrimaryUrl,
+        url: validPrimaryUrl,
+        mimeType: "image/jpeg", 
+        aiDisclosure: "none",
+      });
+
       const primaryUploadResult = await upload({
         type: "image",
         thumbnailUrl: validPrimaryUrl,
@@ -253,6 +296,8 @@ export function App() {
         mimeType: "image/jpeg", 
         aiDisclosure: "none",
       });
+      
+      console.log('Primary upload successful, ref:', primaryUploadResult.ref);
       
       let imageElements: any[] = [];
       
@@ -274,6 +319,11 @@ export function App() {
         if (!validSecondaryUrl.startsWith('http://') && !validSecondaryUrl.startsWith('https://')) {
           validSecondaryUrl = 'https://' + validSecondaryUrl;
         }
+        
+        // Convert PNG to JPEG for Cloudinary URLs to improve Canva compatibility
+        validSecondaryUrl = convertCloudinaryPngToJpeg(validSecondaryUrl);
+        
+        console.log('Final secondary URL for upload:', validSecondaryUrl);
         
         const secondaryUploadResult = await upload({
           type: "image",
@@ -1027,17 +1077,17 @@ export function App() {
                         style={{
                           width: '100%',
                           height: '200px',
-                          backgroundImage: asset.thumbnail ? `url(${asset.thumbnail})` : 'none',
+                          backgroundImage: (asset.url || asset.thumbnail) ? `url(${asset.url || asset.thumbnail})` : 'none',
                           backgroundSize: 'cover',
                           backgroundPosition: 'center',
-                          backgroundColor: asset.thumbnail ? 'transparent' : '#f8fafc',
+                          backgroundColor: (asset.url || asset.thumbnail) ? 'transparent' : '#f8fafc',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           position: 'relative'
                         }}
                       >
-                        {!asset.thumbnail && (
+                        {!(asset.url || asset.thumbnail) && (
                           <Text size="small" tone="tertiary">
                             No Preview Available
                           </Text>
