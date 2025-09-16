@@ -428,10 +428,9 @@ export function App() {
         console.log('DEBUG PRIMARY - Original URL upload successful:', primaryUploadResult);
       }
       
-      console.log('Primary upload successful, ref:', primaryUploadResult.ref);
       
       let imageElements: any[] = [];
-      
+
       if (!hasDualImages) {
         // Single image - use full bounding box
         const imageElement = {
@@ -445,118 +444,78 @@ export function App() {
         };
         imageElements.push(imageElement);
       } else {
-        // Dual images - upload secondary and arrange based on layout
+        // Dual images - upload secondary image and create side-by-side layout
         let validSecondaryUrl = secondaryUrl!;
         if (!validSecondaryUrl.startsWith('http://') && !validSecondaryUrl.startsWith('https://')) {
           validSecondaryUrl = 'https://' + validSecondaryUrl;
         }
-        
-        // Convert PNG to JPEG for better Canva compatibility
-        console.log('DEBUG SECONDARY - Before conversion:', validSecondaryUrl);
-        validSecondaryUrl = convertPngToJpeg(validSecondaryUrl);
-        console.log('DEBUG SECONDARY - After conversion:', validSecondaryUrl);
-        
-        console.log('Final secondary URL for upload:', validSecondaryUrl);
-        
-        console.log('DEBUG SECONDARY - Upload params:', {
-          type: "image",
-          thumbnailUrl: validSecondaryUrl,
-          url: validSecondaryUrl,
-          mimeType: "image/jpeg", 
-          aiDisclosure: "none",
-        });
 
-        // For secondary image, let's try original PNG first since conversion might be causing display issues
+        // Convert PNG to JPEG for better Canva compatibility
+        validSecondaryUrl = convertPngToJpeg(validSecondaryUrl);
+
+        // Upload secondary image
         let secondaryUploadResult;
         const originalSecondaryUrl = secondaryUrl!.startsWith('http') ? secondaryUrl! : 'https://' + secondaryUrl!;
-        
+
         try {
-          // Try with original PNG URL first
-          console.log('DEBUG SECONDARY - Trying PNG upload with original URL:', originalSecondaryUrl);
+          // Try with original URL first
           secondaryUploadResult = await upload({
             type: "image",
             thumbnailUrl: originalSecondaryUrl,
             url: originalSecondaryUrl,
-            mimeType: "image/png",
+            mimeType: originalSecondaryUrl.toLowerCase().includes('.png') ? "image/png" : "image/jpeg",
             aiDisclosure: "none",
           });
-          console.log('DEBUG SECONDARY - PNG upload successful:', secondaryUploadResult);
-        } catch (pngError) {
-          console.log('DEBUG SECONDARY - PNG upload failed, trying JPEG conversion:', pngError);
-          
-          // Fallback to JPEG conversion if PNG fails
+        } catch (originalError) {
+          // Fallback to converted URL
           secondaryUploadResult = await upload({
             type: "image",
             thumbnailUrl: validSecondaryUrl,
             url: validSecondaryUrl,
-            mimeType: "image/jpeg", 
+            mimeType: "image/jpeg",
             aiDisclosure: "none",
           });
-          console.log('DEBUG SECONDARY - JPEG upload successful:', secondaryUploadResult);
         }
-        
-        if (comparisonMode === 'stacked') {
-          // Stacked layout - each image takes half the height
-          const imageHeight = Math.round(boundingHeight / 2);
-          
-          const primaryElement = {
-            type: "image" as const,
-            ref: primaryUploadResult.ref,
-            altText: { text: `${asset.name} - Primary`, decorative: false },
-            top: boundingTop,
-            left: finalBoundingLeft,
-            width: finalBoundingWidth,
-            height: imageHeight,
-          };
-          
-          const secondaryElement = {
-            type: "image" as const,
-            ref: secondaryUploadResult.ref,
-            altText: { text: `${asset.name} - Secondary`, decorative: false },
-            top: boundingTop + imageHeight,
-            left: finalBoundingLeft,
-            width: finalBoundingWidth,
-            height: imageHeight,
-          };
-          
-          imageElements.push(primaryElement, secondaryElement);
-        } else {
-          // Side-by-side layout - split the bounding area evenly with small gap
-          const gap = 20; // Small gap between images
-          const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
 
-          // Position images within the bounding area
-          const primaryLeft = finalBoundingLeft;
-          const secondaryLeft = finalBoundingLeft + imageWidth + gap;
+        // Create side-by-side layout with improved spacing
+        const gap = 30; // Slightly larger gap for better separation
+        const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
 
-          // Additional validation for minimum image width in side-by-side layout
-          if (imageWidth < 50) {
-            throw new Error(`Side-by-side images too narrow. Width: ${imageWidth}px (minimum: 50px)`);
-          }
-
-
-          const primaryElement = {
-            type: "image" as const,
-            ref: primaryUploadResult.ref,
-            altText: { text: `${asset.name} - Primary`, decorative: false },
-            top: boundingTop,
-            left: primaryLeft,
-            width: imageWidth,
-            height: boundingHeight,
-          };
-
-          const secondaryElement = {
-            type: "image" as const,
-            ref: secondaryUploadResult.ref,
-            altText: { text: `${asset.name} - Secondary`, decorative: false },
-            top: boundingTop,
-            left: secondaryLeft,
-            width: imageWidth,
-            height: boundingHeight,
-          };
-
-          imageElements.push(primaryElement, secondaryElement);
+        // Ensure minimum width
+        if (imageWidth < 100) {
+          throw new Error(`Images too narrow for side-by-side layout. Available width per image: ${imageWidth}px (minimum: 100px)`);
         }
+
+        // Position images with proper spacing
+        const primaryLeft = finalBoundingLeft;
+        const secondaryLeft = finalBoundingLeft + imageWidth + gap;
+
+        // Validate positioning
+        if (secondaryLeft + imageWidth > designWidth) {
+          throw new Error(`Side-by-side layout exceeds page width. Need ${secondaryLeft + imageWidth}px, have ${designWidth}px`);
+        }
+
+        const primaryElement = {
+          type: "image" as const,
+          ref: primaryUploadResult.ref,
+          altText: { text: `${asset.name} - Primary`, decorative: false },
+          top: boundingTop,
+          left: primaryLeft,
+          width: imageWidth,
+          height: boundingHeight,
+        };
+
+        const secondaryElement = {
+          type: "image" as const,
+          ref: secondaryUploadResult.ref,
+          altText: { text: `${asset.name} - Secondary`, decorative: false },
+          top: boundingTop,
+          left: secondaryLeft,
+          width: imageWidth,
+          height: boundingHeight,
+        };
+
+        imageElements.push(primaryElement, secondaryElement);
       }
 
       // Upload and create logo element for top right corner
@@ -747,15 +706,16 @@ export function App() {
       const primaryVersion = asset.version && asset.version.trim();
       const secondaryVersion = asset.secondary_version && asset.secondary_version.trim();
       
+      // Create date pills based on image layout
       if (primaryVersion || secondaryVersion) {
         if (!hasDualImages || !secondaryVersion) {
-          // Single version pill (either single image or dual images with only primary version)
+          // Single version pill
           const versionToShow = primaryVersion || secondaryVersion;
           const formattedDate = formatVersionDate(versionToShow!);
-          
+
           if (formattedDate) {
             let pillLeft: number, pillTop: number, pillWidth: number, pillHeight: number;
-            
+
             if (designWidth === 1080 && designHeight === 1080) {
               pillLeft = 480;
               pillTop = 911.3;
@@ -767,7 +727,7 @@ export function App() {
               pillWidth = (120 / 1080) * designWidth;
               pillHeight = (32 / 1080) * designHeight;
             }
-            
+
             datePillRectangleElements.push({
               type: "shape" as const,
               paths: [
@@ -796,68 +756,33 @@ export function App() {
             });
           }
         } else {
-          // Dual version pills - position based on layout mode (stacked vs side-by-side)
+          // Dual version pills for side-by-side layout
           const primaryFormattedDate = formatVersionDate(primaryVersion);
           const secondaryFormattedDate = formatVersionDate(secondaryVersion);
-          
-          if (primaryFormattedDate || secondaryFormattedDate) {
-            let pillWidth: number, pillHeight: number;
-            let primaryPillTop: number, primaryPillLeft: number;
-            let secondaryPillTop: number, secondaryPillLeft: number;
-            
-            if (designWidth === 1080 && designHeight === 1080) {
-              pillWidth = 120; // Keep original pill width
-              pillHeight = 32;
-              
-              if (comparisonMode === 'stacked') {
-                // Stacked layout - position pills under their respective images
-                const centerX = designWidth / 2;
-                primaryPillLeft = centerX - (pillWidth / 2);
-                secondaryPillLeft = centerX - (pillWidth / 2);
-                
-                // Position under the images (images are at boundingTop with boundingHeight/2 each)
-                const imageHeight = Math.round(boundingHeight / 2);
-                primaryPillTop = boundingTop + imageHeight - 40; // 40px from bottom of primary image
-                secondaryPillTop = boundingTop + boundingHeight - 40; // 40px from bottom of secondary image
-              } else {
-                // Side-by-side layout - center pills under their respective images
-                const gap = 20;
-                const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
-                const primaryImageCenterX = finalBoundingLeft + (imageWidth / 2);
-                const secondaryImageCenterX = finalBoundingLeft + imageWidth + gap + (imageWidth / 2);
 
-                primaryPillLeft = primaryImageCenterX - (pillWidth / 2);
-                secondaryPillLeft = secondaryImageCenterX - (pillWidth / 2);
-                primaryPillTop = 911.3;
-                secondaryPillTop = 911.3;
-              }
+          if (primaryFormattedDate || secondaryFormattedDate) {
+            const gap = 30;
+            const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
+
+            let pillWidth: number, pillHeight: number, pillTop: number;
+
+            if (designWidth === 1080 && designHeight === 1080) {
+              pillWidth = 120;
+              pillHeight = 32;
+              pillTop = 911.3;
             } else {
               pillWidth = (120 / 1080) * designWidth;
               pillHeight = (32 / 1080) * designHeight;
-              
-              if (comparisonMode === 'stacked') {
-                // Stacked layout - center horizontally, position under images
-                const centerX = designWidth / 2;
-                primaryPillLeft = centerX - (pillWidth / 2);
-                secondaryPillLeft = centerX - (pillWidth / 2);
-                
-                const imageHeight = Math.round(boundingHeight / 2);
-                primaryPillTop = boundingTop + imageHeight - (40 / 1080) * designHeight;
-                secondaryPillTop = boundingTop + boundingHeight - (40 / 1080) * designHeight;
-              } else {
-                // Side-by-side layout - center pills under their respective images
-                const gap = 20;
-                const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
-                const primaryImageCenterX = finalBoundingLeft + (imageWidth / 2);
-                const secondaryImageCenterX = finalBoundingLeft + imageWidth + gap + (imageWidth / 2);
-
-                primaryPillLeft = primaryImageCenterX - (pillWidth / 2);
-                secondaryPillLeft = secondaryImageCenterX - (pillWidth / 2);
-                primaryPillTop = (911.3 / 1080) * designHeight;
-                secondaryPillTop = (911.3 / 1080) * designHeight;
-              }
+              pillTop = (911.3 / 1080) * designHeight;
             }
-            
+
+            // Position pills under their respective images
+            const primaryImageCenterX = finalBoundingLeft + (imageWidth / 2);
+            const secondaryImageCenterX = finalBoundingLeft + imageWidth + gap + (imageWidth / 2);
+
+            const primaryPillLeft = primaryImageCenterX - (pillWidth / 2);
+            const secondaryPillLeft = secondaryImageCenterX - (pillWidth / 2);
+
             // Primary version pill
             if (primaryFormattedDate) {
               datePillRectangleElements.push({
@@ -868,7 +793,7 @@ export function App() {
                     fill: { color: "#FFFFFF" }
                   }
                 ],
-                top: primaryPillTop,
+                top: pillTop,
                 left: primaryPillLeft,
                 width: pillWidth,
                 height: pillHeight,
@@ -878,7 +803,7 @@ export function App() {
               datePillElements.push({
                 type: "text" as const,
                 children: [primaryFormattedDate],
-                top: primaryPillTop + (pillHeight / 2) - 7,
+                top: pillTop + (pillHeight / 2) - 7,
                 left: primaryPillLeft,
                 width: pillWidth,
                 fontSize: 14,
@@ -887,7 +812,7 @@ export function App() {
                 textAlign: "center" as const,
               });
             }
-            
+
             // Secondary version pill
             if (secondaryFormattedDate) {
               datePillRectangleElements.push({
@@ -895,10 +820,10 @@ export function App() {
                 paths: [
                   {
                     d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
-                    fill: { color: "#FFFFFF" } // Same white background as primary
+                    fill: { color: "#FFFFFF" }
                   }
                 ],
-                top: secondaryPillTop,
+                top: pillTop,
                 left: secondaryPillLeft,
                 width: pillWidth,
                 height: pillHeight,
@@ -908,7 +833,7 @@ export function App() {
               datePillElements.push({
                 type: "text" as const,
                 children: [secondaryFormattedDate],
-                top: secondaryPillTop + (pillHeight / 2) - 7,
+                top: pillTop + (pillHeight / 2) - 7,
                 left: secondaryPillLeft,
                 width: pillWidth,
                 fontSize: 14,
@@ -988,58 +913,29 @@ export function App() {
 
       // Add to design using the same pattern as reference app
       if (features.isSupported(addElementAtPoint)) {
-        // Add all image elements with delay for dual images
+        // Add all image elements (single or dual)
         for (const [index, imageElement] of imageElements.entries()) {
           try {
-            // Add small delay between dual images to prevent Canva internal errors
-            if (index > 0 && hasDualImages) {
-              await new Promise(resolve => setTimeout(resolve, 100));
+            // Add small delay between images to prevent Canva conflicts
+            if (index > 0) {
+              await new Promise(resolve => setTimeout(resolve, 200));
             }
 
             await addElementAtPoint(imageElement);
           } catch (err) {
-            // For dual images, if the second image fails, try different approaches
-            if (index === 1 && hasDualImages && err instanceof Error && err.message.includes('internal_error')) {
-              try {
-                // Try stacked layout instead - each image takes half the height
-                const imageHeight = Math.round(boundingHeight / 2);
-
-                const stackedElement = {
-                  type: "image" as const,
-                  ref: imageElement.ref,
-                  altText: imageElement.altText,
-                  top: boundingTop + imageHeight, // Place below the first image
-                  left: finalBoundingLeft, // Use full width like single image
-                  width: finalBoundingWidth, // Use full width
-                  height: imageHeight,
-                };
-
-                await addElementAtPoint(stackedElement);
-              } catch (stackedErr) {
-                // Break out of the image insertion loop - we'll continue with just the primary image
-                break;
-              }
-            } else {
-              throw new Error(`Failed to add image element ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            }
+            throw new Error(`Failed to add image ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
         
         try {
-          console.log('DEBUG: Adding footer rectangle');
           await addElementAtPoint(footerRectangleElement);
-          console.log('DEBUG: Footer rectangle added successfully');
         } catch (err) {
-          console.error('ERROR: Failed to add footer rectangle:', err);
           throw new Error(`Failed to add footer rectangle: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
         
         try {
-          console.log('DEBUG: Adding PricingSaas logo');
           await addElementAtPoint(logoElement);
-          console.log('DEBUG: PricingSaas logo added successfully');
         } catch (err) {
-          console.error('ERROR: Failed to add PricingSaas logo:', err);
           throw new Error(`Failed to add PricingSaas logo: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
         
