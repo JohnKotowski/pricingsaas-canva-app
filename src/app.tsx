@@ -519,15 +519,20 @@ export function App() {
           
           imageElements.push(primaryElement, secondaryElement);
         } else {
-          // Side-by-side layout - center images at 30% and 70% width marks
-          const imageWidth = Math.round(finalBoundingWidth / 2);
-          
-          // Calculate positions to center images at 30% and 70% of design width
-          const primaryCenterX = designWidth * 0.30;
-          const secondaryCenterX = designWidth * 0.70;
-          const primaryLeft = Math.round(primaryCenterX - (imageWidth / 2));
-          const secondaryLeft = Math.round(secondaryCenterX - (imageWidth / 2));
-          
+          // Side-by-side layout - split the bounding area evenly with small gap
+          const gap = 20; // Small gap between images
+          const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
+
+          // Position images within the bounding area
+          const primaryLeft = finalBoundingLeft;
+          const secondaryLeft = finalBoundingLeft + imageWidth + gap;
+
+          // Validate that both images fit within page bounds
+          if (secondaryLeft + imageWidth > designWidth) {
+            throw new Error(`Side-by-side images exceed page width. Page: ${designWidth}px, Secondary image ends at: ${secondaryLeft + imageWidth}px`);
+          }
+
+
           const primaryElement = {
             type: "image" as const,
             ref: primaryUploadResult.ref,
@@ -537,7 +542,7 @@ export function App() {
             width: imageWidth,
             height: boundingHeight,
           };
-          
+
           const secondaryElement = {
             type: "image" as const,
             ref: secondaryUploadResult.ref,
@@ -547,7 +552,7 @@ export function App() {
             width: imageWidth,
             height: boundingHeight,
           };
-          
+
           imageElements.push(primaryElement, secondaryElement);
         }
       }
@@ -813,9 +818,14 @@ export function App() {
                 primaryPillTop = boundingTop + imageHeight - 40; // 40px from bottom of primary image
                 secondaryPillTop = boundingTop + boundingHeight - 40; // 40px from bottom of secondary image
               } else {
-                // Side-by-side layout - position at 30% and 70% width points
-                primaryPillLeft = (designWidth * 0.30) - (pillWidth / 2);
-                secondaryPillLeft = (designWidth * 0.70) - (pillWidth / 2);
+                // Side-by-side layout - center pills under their respective images
+                const gap = 20;
+                const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
+                const primaryImageCenterX = finalBoundingLeft + (imageWidth / 2);
+                const secondaryImageCenterX = finalBoundingLeft + imageWidth + gap + (imageWidth / 2);
+
+                primaryPillLeft = primaryImageCenterX - (pillWidth / 2);
+                secondaryPillLeft = secondaryImageCenterX - (pillWidth / 2);
                 primaryPillTop = 911.3;
                 secondaryPillTop = 911.3;
               }
@@ -833,9 +843,14 @@ export function App() {
                 primaryPillTop = boundingTop + imageHeight - (40 / 1080) * designHeight;
                 secondaryPillTop = boundingTop + boundingHeight - (40 / 1080) * designHeight;
               } else {
-                // Side-by-side layout - position at 30% and 70% width points
-                primaryPillLeft = (designWidth * 0.30) - (pillWidth / 2);
-                secondaryPillLeft = (designWidth * 0.70) - (pillWidth / 2);
+                // Side-by-side layout - center pills under their respective images
+                const gap = 20;
+                const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
+                const primaryImageCenterX = finalBoundingLeft + (imageWidth / 2);
+                const secondaryImageCenterX = finalBoundingLeft + imageWidth + gap + (imageWidth / 2);
+
+                primaryPillLeft = primaryImageCenterX - (pillWidth / 2);
+                secondaryPillLeft = secondaryImageCenterX - (pillWidth / 2);
                 primaryPillTop = (911.3 / 1080) * designHeight;
                 secondaryPillTop = (911.3 / 1080) * designHeight;
               }

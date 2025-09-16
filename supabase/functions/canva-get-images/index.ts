@@ -209,20 +209,28 @@ serve(async (req: Request) => {
           url: assetUrl,
           thumbnail: thumbnailUrl,
           company_logo_url: String((asset.pages as any)?.companies?.logo_url || ''),
-          company_slug: String((asset.pages as any)?.companies?.slug || '') + 
+          company_slug: String((asset.pages as any)?.companies?.slug || '') +
                        (String((asset.pages as any)?.subslug || '') ? '.' + String((asset.pages as any)?.subslug || '') : ''),
           header: String(asset.header || ''),
           subheader: String(asset.subheader || ''),
           version: String(asset.version || ''),
           secondary_version: String(asset.secondary_version || ''),
           crop_aspect_ratio: String(asset.crop_aspect_ratio || '1:1'),
+          // Add all image URL fields for dual image support
+          primary_image: String(asset.primary_image || ''),
+          secondary_image: String(asset.secondary_image || ''),
+          primary_original_url: String(asset.primary_original_url || ''),
+          secondary_original_url: String(asset.secondary_original_url || ''),
+          primary_cropped_url: String(asset.primary_cropped_url || ''),
+          secondary_cropped_url: String(asset.secondary_cropped_url || ''),
           primary_markup_url: String(asset.primary_markup_url || ''),
           secondary_markup_url: String(asset.secondary_markup_url || ''),
+          type: assetType,
           asset_type: assetType,
           comparison_mode: comparisonMode,
           // Secondary page company info (if different from primary)
           secondary_company_logo_url: String((asset.secondary_pages as any)?.companies?.logo_url || ''),
-          secondary_company_slug: String((asset.secondary_pages as any)?.companies?.slug || '') + 
+          secondary_company_slug: String((asset.secondary_pages as any)?.companies?.slug || '') +
                                  (String((asset.secondary_pages as any)?.subslug || '') ? '.' + String((asset.secondary_pages as any)?.subslug || '') : ''),
           width: Number(asset.width) || undefined,
           height: Number(asset.height) || undefined,
