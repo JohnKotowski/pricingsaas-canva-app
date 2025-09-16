@@ -250,7 +250,6 @@ export function App() {
     try {
       setError(null);
       
-      console.log('Inserting asset:', asset);
       
       const assetType = asset.asset_type || asset.type || 'simple';
       const comparisonMode = asset.comparison_mode || 'single';
@@ -261,27 +260,9 @@ export function App() {
         (asset.secondary_markup_url || asset.secondary_cropped_url || asset.secondary_original_url) && 
         (asset.secondary_markup_url?.trim() !== '' || asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
       
-      // Determine image URLs to use with correct priority (including original URLs)
-      console.log('DEBUG URL SELECTION - Asset URLs:');
-      console.log('  primary_markup_url:', asset.primary_markup_url);
-      console.log('  primary_cropped_url:', asset.primary_cropped_url);
-      console.log('  primary_original_url:', asset.primary_original_url);
-      console.log('  secondary_markup_url:', asset.secondary_markup_url);
-      console.log('  secondary_cropped_url:', asset.secondary_cropped_url);
-      console.log('  secondary_original_url:', asset.secondary_original_url);
-      console.log('  url (fallback):', asset.url);
-      console.log('  thumbnail (fallback):', asset.thumbnail);
-      
       // Prefer original URLs to avoid cropping
       const primaryUrl = asset.primary_original_url || asset.primary_cropped_url || asset.primary_markup_url || asset.url || asset.thumbnail;
       const secondaryUrl = hasDualImages ? (asset.secondary_original_url || asset.secondary_cropped_url || asset.secondary_markup_url) : null;
-      
-      console.log('DEBUG URL SELECTION - Selected URLs:');
-      console.log('  primaryUrl:', primaryUrl);
-      console.log('  secondaryUrl:', secondaryUrl);
-      console.log('  hasDualImages:', hasDualImages);
-      
-      console.log('Asset type:', assetType, 'Comparison mode:', comparisonMode, 'Dual images:', hasDualImages);
       
       // Parse aspect ratio and determine layout - use original image aspect ratio if available
       let aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
@@ -327,36 +308,57 @@ export function App() {
       const boundingTop = 200;
       const calculatedHeight = Math.round(boundingWidth / aspectRatio);
       
-      // Ensure the image fits within available page height, leaving space for footer and other elements
-      const maxAvailableHeight = designHeight - boundingTop - 150; // Leave 150px for footer and margins
-      const boundingHeight = Math.min(calculatedHeight, maxAvailableHeight);
-      
-      // If we had to constrain the height, adjust the width to maintain aspect ratio
-      const finalBoundingWidth = boundingHeight < calculatedHeight ? 
+      // Calculate space needed for other elements
+      const headerSpace = 200; // Space for header and subheader
+      const footerSpace = 150; // Space for footer, pills, and margins
+      const logoSpace = 50; // Additional space for company logo and text
+
+      // Ensure the image fits within available page height, leaving space for all other elements
+      const maxAvailableHeight = designHeight - headerSpace - footerSpace - logoSpace;
+      const constrainedHeight = Math.min(calculatedHeight, maxAvailableHeight);
+
+      // If we had to constrain the height significantly, also constrain width to maintain reasonable proportions
+      const heightReduction = calculatedHeight - constrainedHeight;
+      const boundingHeight = constrainedHeight;
+
+      // Adjust width to maintain aspect ratio if height was constrained
+      const finalBoundingWidth = boundingHeight < calculatedHeight ?
         Math.round(boundingHeight * aspectRatio) : boundingWidth;
-      
-      console.log('Bounding box:', { 
-        originalWidth: boundingWidth,
-        finalWidth: finalBoundingWidth, 
-        boundingLeft, 
-        boundingTop, 
-        boundingHeight,
-        aspectRatio,
-        maxAvailableHeight
-      });
-      console.log('Design dimensions:', { designWidth, designHeight });
-      
-      // Validate dimensions and ensure elements fit within page bounds
-      if (finalBoundingWidth <= 0 || boundingLeft < 0 || boundingTop < 0 || boundingHeight <= 0) {
-        throw new Error(`Invalid bounding dimensions: width=${finalBoundingWidth}, left=${boundingLeft}, top=${boundingTop}, height=${boundingHeight}`);
-      }
-      
+
       // Recalculate left position if width was adjusted
       const finalBoundingLeft = Math.round((designWidth - finalBoundingWidth) / 2);
-      
-      // Check if bounding box fits within page
-      if (finalBoundingLeft + finalBoundingWidth > designWidth || boundingTop + boundingHeight > designHeight) {
-        throw new Error(`Elements exceed page bounds. Page: ${designWidth}x${designHeight}, Bounding box: ${finalBoundingWidth}x${boundingHeight} at (${finalBoundingLeft}, ${boundingTop})`);
+
+
+      // Comprehensive validation
+      if (finalBoundingWidth <= 0 || finalBoundingLeft < 0 || boundingTop < 0 || boundingHeight <= 0) {
+        throw new Error(`Invalid bounding dimensions: width=${finalBoundingWidth}, left=${finalBoundingLeft}, top=${boundingTop}, height=${boundingHeight}`);
+      }
+
+      // Ensure images don't exceed available space (accounting for footer)
+      const imageBottom = boundingTop + boundingHeight;
+      const availableBottom = designHeight - footerSpace;
+      if (imageBottom > availableBottom) {
+        throw new Error(`Images would overlap footer. Image bottom: ${imageBottom}px, Available bottom: ${availableBottom}px`);
+      }
+
+      // Ensure images fit horizontally
+      if (finalBoundingLeft + finalBoundingWidth > designWidth) {
+        throw new Error(`Images exceed page width. Page: ${designWidth}px, Images end at: ${finalBoundingLeft + finalBoundingWidth}px`);
+      }
+
+      // For dual images, validate that both images will fit
+      if (hasDualImages) {
+        const gap = 20;
+        const singleImageWidth = Math.round((finalBoundingWidth - gap) / 2);
+        const secondaryImageRight = finalBoundingLeft + singleImageWidth + gap + singleImageWidth;
+
+        if (secondaryImageRight > designWidth) {
+          throw new Error(`Dual images exceed page width. Secondary image ends at: ${secondaryImageRight}px, Page width: ${designWidth}px`);
+        }
+
+        if (singleImageWidth < 50) {
+          throw new Error(`Dual images too narrow. Single image width: ${singleImageWidth}px (minimum: 50px)`);
+        }
       }
       
       if (!primaryUrl) {
@@ -527,9 +529,9 @@ export function App() {
           const primaryLeft = finalBoundingLeft;
           const secondaryLeft = finalBoundingLeft + imageWidth + gap;
 
-          // Validate that both images fit within page bounds
-          if (secondaryLeft + imageWidth > designWidth) {
-            throw new Error(`Side-by-side images exceed page width. Page: ${designWidth}px, Secondary image ends at: ${secondaryLeft + imageWidth}px`);
+          // Additional validation for minimum image width in side-by-side layout
+          if (imageWidth < 50) {
+            throw new Error(`Side-by-side images too narrow. Width: ${imageWidth}px (minimum: 50px)`);
           }
 
 
@@ -986,15 +988,40 @@ export function App() {
 
       // Add to design using the same pattern as reference app
       if (features.isSupported(addElementAtPoint)) {
-        // Add all image elements
+        // Add all image elements with delay for dual images
         for (const [index, imageElement] of imageElements.entries()) {
           try {
-            console.log(`DEBUG: Adding image element ${index + 1}`, imageElement);
+            // Add small delay between dual images to prevent Canva internal errors
+            if (index > 0 && hasDualImages) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
             await addElementAtPoint(imageElement);
-            console.log(`DEBUG: Image element ${index + 1} added successfully`);
           } catch (err) {
-            console.error(`ERROR: Failed to add image element ${index + 1}:`, err);
-            throw new Error(`Failed to add image element ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // For dual images, if the second image fails, try different approaches
+            if (index === 1 && hasDualImages && err instanceof Error && err.message.includes('internal_error')) {
+              try {
+                // Try stacked layout instead - each image takes half the height
+                const imageHeight = Math.round(boundingHeight / 2);
+
+                const stackedElement = {
+                  type: "image" as const,
+                  ref: imageElement.ref,
+                  altText: imageElement.altText,
+                  top: boundingTop + imageHeight, // Place below the first image
+                  left: finalBoundingLeft, // Use full width like single image
+                  width: finalBoundingWidth, // Use full width
+                  height: imageHeight,
+                };
+
+                await addElementAtPoint(stackedElement);
+              } catch (stackedErr) {
+                // Break out of the image insertion loop - we'll continue with just the primary image
+                break;
+              }
+            } else {
+              throw new Error(`Failed to add image element ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            }
           }
         }
         
