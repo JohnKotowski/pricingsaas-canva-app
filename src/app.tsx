@@ -50,6 +50,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [designWidth, setDesignWidth] = useState(1080);
   const [designHeight, setDesignHeight] = useState(1080);
+  const [footerHeight, setFooterHeight] = useState(75);
 
   // Load collections on app start
   useEffect(() => {
@@ -196,73 +197,60 @@ export function App() {
 
   // Helper function to convert PNG URLs to JPEG for better Canva compatibility
   const convertPngToJpeg = (url: string): string => {
-    console.log('DEBUG convertPngToJpeg - Input URL:', url);
-    
     if (!url) {
-      console.log('DEBUG convertPngToJpeg - Empty URL, returning as-is');
       return url;
     }
-    
+
     // Convert any PNG URL to JPEG for better Canva compatibility (case insensitive)
     const lowerUrl = url.toLowerCase();
     if (lowerUrl.endsWith('.png') || lowerUrl.includes('.png?') || lowerUrl.includes('.png&')) {
-      console.log('DEBUG convertPngToJpeg - URL contains .png, converting...');
-      
       if (url.includes('cloudinary.com')) {
-        console.log('DEBUG convertPngToJpeg - Cloudinary URL detected');
         // For Cloudinary, we can use their format transformation
         let convertedUrl = url;
         if (url.includes('/upload/')) {
           // Insert format transformation in Cloudinary URL
           convertedUrl = url.replace('/upload/', '/upload/f_jpg/');
-          console.log('DEBUG convertPngToJpeg - Cloudinary f_jpg transformation:', convertedUrl);
         } else {
           // Fallback: simple extension replacement
           convertedUrl = url.replace(/\.png/gi, '.jpeg');
-          console.log('DEBUG convertPngToJpeg - Cloudinary extension replacement:', convertedUrl);
         }
         return convertedUrl;
       } else {
-        console.log('DEBUG convertPngToJpeg - Non-Cloudinary URL detected');
         // For other services, try multiple approaches
         let convertedUrl = url;
-        
+
         // First try: Add format parameter
         if (url.includes('?')) {
           convertedUrl = url + '&format=jpeg';
         } else {
           convertedUrl = url + '?format=jpeg';
         }
-        
+
         // Also try changing extension
         convertedUrl = convertedUrl.replace(/\.png/gi, '.jpg');
-        
-        console.log('DEBUG convertPngToJpeg - Non-Cloudinary conversion result:', convertedUrl);
+
         return convertedUrl;
       }
     }
-    
-    console.log('DEBUG convertPngToJpeg - URL does not contain .png, returning as-is');
+
     return url;
   };
 
   const insertAsset = async (asset: Asset) => {
     try {
       setError(null);
-      
-      
+
       const assetType = asset.asset_type || asset.type || 'simple';
       const comparisonMode = asset.comparison_mode || 'single';
-      
-      // Determine if we should show dual images based on type and secondary URL availability
-      // For 'diff' type assets, show dual images if secondary URL exists, regardless of comparison_mode
-      const hasDualImages = assetType === 'diff' && 
-        (asset.secondary_markup_url || asset.secondary_cropped_url || asset.secondary_original_url) && 
-        (asset.secondary_markup_url?.trim() !== '' || asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
-      
-      // Prefer original URLs to avoid cropping
-      const primaryUrl = asset.primary_original_url || asset.primary_cropped_url || asset.primary_markup_url || asset.url || asset.thumbnail;
-      const secondaryUrl = hasDualImages ? (asset.secondary_original_url || asset.secondary_cropped_url || asset.secondary_markup_url) : null;
+
+      // Determine if we should show dual images based on AssetType
+      const hasDualImages = assetType === 'diff' &&
+        (asset.secondary_cropped_url || asset.secondary_original_url) &&
+        (asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
+
+      // Prioritize cropped URLs, fall back to original URLs
+      const primaryUrl = asset.primary_cropped_url || asset.primary_original_url || asset.primary_markup_url || asset.url || asset.thumbnail;
+      const secondaryUrl = hasDualImages ? (asset.secondary_cropped_url || asset.secondary_original_url || asset.secondary_markup_url) : null;
       
       // Parse aspect ratio and determine layout - use original image aspect ratio if available
       let aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
@@ -277,87 +265,171 @@ export function App() {
           const originalAspectRatio = await new Promise<number>((resolve, reject) => {
             img.onload = () => {
               const ratio = img.naturalWidth / img.naturalHeight;
-              console.log('DEBUG - Image natural dimensions:', img.naturalWidth, 'x', img.naturalHeight, 'ratio:', ratio);
               resolve(ratio);
             };
             img.onerror = () => {
-              console.log('DEBUG - Failed to load image for aspect ratio, using fallback');
               resolve(aspectRatio); // fallback to crop aspect ratio
             };
             img.src = primaryUrl;
           });
-          
+
           aspectRatio = originalAspectRatio;
-          console.log('DEBUG - Using original aspect ratio:', aspectRatio);
         } catch (error) {
-          console.log('DEBUG - Error getting original aspect ratio, using crop_aspect_ratio:', error);
           // Keep the original aspectRatio from crop_aspect_ratio
         }
       }
       
-      // Check minimum viable page size
-      const minWidth = 400;
-      const minHeight = 300;
-      if (designWidth < minWidth || designHeight < minHeight) {
-        throw new Error(`Page too small. Minimum size: ${minWidth}x${minHeight}, current: ${designWidth}x${designHeight}`);
-      }
-      
-      // Calculate bounding box for images (76.23% width = 69.3% + 10%, y=200)
-      const boundingWidth = Math.round(designWidth * 0.7623); // 69.3% * 1.1 = 76.23%
-      const boundingLeft = Math.round((designWidth - boundingWidth) / 2);
-      const boundingTop = 200;
-      const calculatedHeight = Math.round(boundingWidth / aspectRatio);
-      
-      // Calculate space needed for other elements
-      const headerSpace = 200; // Space for header and subheader
-      const footerSpace = 150; // Space for footer, pills, and margins
-      const logoSpace = 50; // Additional space for company logo and text
+      // Calculate dynamic image area based on settings
+      const headerSpace = 110; // Increased space for header and subheader (10% more from 100px)
+      const footerSpace = footerHeight; // Use footer height from settings
+      const versionLabelSpace = 40; // Space for version labels under images
+      const padding = 20; // General padding
 
-      // Ensure the image fits within available page height, leaving space for all other elements
-      const maxAvailableHeight = designHeight - headerSpace - footerSpace - logoSpace;
-      const constrainedHeight = Math.min(calculatedHeight, maxAvailableHeight);
+      // Available image area
+      const imageAreaTop = headerSpace;
+      const imageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
+      const imageAreaWidth = designWidth - (padding * 2);
+      const imageAreaLeft = padding;
 
-      // If we had to constrain the height significantly, also constrain width to maintain reasonable proportions
-      const heightReduction = calculatedHeight - constrainedHeight;
-      const boundingHeight = constrainedHeight;
-
-      // Adjust width to maintain aspect ratio if height was constrained
-      const finalBoundingWidth = boundingHeight < calculatedHeight ?
-        Math.round(boundingHeight * aspectRatio) : boundingWidth;
-
-      // Recalculate left position if width was adjusted
-      const finalBoundingLeft = Math.round((designWidth - finalBoundingWidth) / 2);
-
-
-      // Comprehensive validation
-      if (finalBoundingWidth <= 0 || finalBoundingLeft < 0 || boundingTop < 0 || boundingHeight <= 0) {
-        throw new Error(`Invalid bounding dimensions: width=${finalBoundingWidth}, left=${finalBoundingLeft}, top=${boundingTop}, height=${boundingHeight}`);
+      // Check minimum viable image area
+      if (imageAreaWidth < 200 || imageAreaHeight < 150) {
+        throw new Error(`Design too small for images. Need at least 240x265px total, got ${designWidth}x${designHeight}px`);
       }
 
-      // Ensure images don't exceed available space (accounting for footer)
-      const imageBottom = boundingTop + boundingHeight;
-      const availableBottom = designHeight - footerSpace;
-      if (imageBottom > availableBottom) {
-        throw new Error(`Images would overlap footer. Image bottom: ${imageBottom}px, Available bottom: ${availableBottom}px`);
-      }
 
-      // Ensure images fit horizontally
-      if (finalBoundingLeft + finalBoundingWidth > designWidth) {
-        throw new Error(`Images exceed page width. Page: ${designWidth}px, Images end at: ${finalBoundingLeft + finalBoundingWidth}px`);
-      }
+      // Calculate image layout based on AssetType and ComparisonMode
+      let imageLayout: {
+        images: Array<{
+          top: number;
+          left: number;
+          width: number;
+          height: number;
+          ref?: any;
+          altText: string;
+        }>;
+        versionLabelPositions: Array<{
+          top: number;
+          left: number;
+          width: number;
+        }>;
+      };
 
-      // For dual images, validate that both images will fit
-      if (hasDualImages) {
-        const gap = 20;
-        const singleImageWidth = Math.round((finalBoundingWidth - gap) / 2);
-        const secondaryImageRight = finalBoundingLeft + singleImageWidth + gap + singleImageWidth;
+      if (!hasDualImages) {
+        // Single image layout
+        const imageWidth = Math.min(imageAreaWidth, Math.round(imageAreaHeight * aspectRatio));
+        const imageHeight = Math.round(imageWidth / aspectRatio);
+        const imageLeft = imageAreaLeft + Math.round((imageAreaWidth - imageWidth) / 2);
+        const imageTop = imageAreaTop + Math.round((imageAreaHeight - imageHeight) / 2);
 
-        if (secondaryImageRight > designWidth) {
-          throw new Error(`Dual images exceed page width. Secondary image ends at: ${secondaryImageRight}px, Page width: ${designWidth}px`);
-        }
+        imageLayout = {
+          images: [{
+            top: imageTop,
+            left: imageLeft,
+            width: imageWidth,
+            height: imageHeight,
+            altText: asset.name
+          }],
+          versionLabelPositions: [{
+            top: imageTop + imageHeight + 10,
+            left: imageLeft,
+            width: imageWidth
+          }]
+        };
+      } else {
+        // Dual image layout based on ComparisonMode
+        if (comparisonMode === 'side_by_side') {
+          // Side-by-side layout
+          const gap = 20;
+          const singleImageWidth = Math.round((imageAreaWidth - gap) / 2);
+          const imageHeight = Math.min(imageAreaHeight, Math.round(singleImageWidth / aspectRatio));
+          const imageTop = imageAreaTop + Math.round((imageAreaHeight - imageHeight) / 2);
 
-        if (singleImageWidth < 50) {
-          throw new Error(`Dual images too narrow. Single image width: ${singleImageWidth}px (minimum: 50px)`);
+          const primaryLeft = imageAreaLeft;
+          const secondaryLeft = imageAreaLeft + singleImageWidth + gap;
+
+          // Validate minimum width
+          if (singleImageWidth < 80) {
+            throw new Error(`Images too narrow for side-by-side layout. Available width per image: ${singleImageWidth}px (minimum: 80px)`);
+          }
+
+          imageLayout = {
+            images: [
+              {
+                top: imageTop,
+                left: primaryLeft,
+                width: singleImageWidth,
+                height: imageHeight,
+                altText: `${asset.name} - Primary`
+              },
+              {
+                top: imageTop,
+                left: secondaryLeft,
+                width: singleImageWidth,
+                height: imageHeight,
+                altText: `${asset.name} - Secondary`
+              }
+            ],
+            versionLabelPositions: [
+              {
+                top: imageTop + imageHeight + 10,
+                left: primaryLeft,
+                width: singleImageWidth
+              },
+              {
+                top: imageTop + imageHeight + 10,
+                left: secondaryLeft,
+                width: singleImageWidth
+              }
+            ]
+          };
+        } else {
+          // Stacked layout
+          const gap = 10;
+          const imageWidth = Math.min(imageAreaWidth, Math.round((imageAreaHeight - gap) / 2 * aspectRatio));
+          const singleImageHeight = Math.round(imageWidth / aspectRatio);
+          const totalHeight = (singleImageHeight * 2) + gap;
+
+          const imageLeft = imageAreaLeft + Math.round((imageAreaWidth - imageWidth) / 2);
+          const startTop = imageAreaTop + Math.round((imageAreaHeight - totalHeight) / 2);
+
+          const primaryTop = startTop;
+          const secondaryTop = startTop + singleImageHeight + gap;
+
+          // Validate minimum height
+          if (singleImageHeight < 60) {
+            throw new Error(`Images too short for stacked layout. Available height per image: ${singleImageHeight}px (minimum: 60px)`);
+          }
+
+          imageLayout = {
+            images: [
+              {
+                top: primaryTop,
+                left: imageLeft,
+                width: imageWidth,
+                height: singleImageHeight,
+                altText: `${asset.name} - Primary`
+              },
+              {
+                top: secondaryTop,
+                left: imageLeft,
+                width: imageWidth,
+                height: singleImageHeight,
+                altText: `${asset.name} - Secondary`
+              }
+            ],
+            versionLabelPositions: [
+              {
+                top: primaryTop + singleImageHeight + 5,
+                left: imageLeft,
+                width: imageWidth
+              },
+              {
+                top: secondaryTop + singleImageHeight + 5,
+                left: imageLeft,
+                width: imageWidth
+              }
+            ]
+          };
         }
       }
       
@@ -365,37 +437,14 @@ export function App() {
         throw new Error('No primary image URL available');
       }
       
-      console.log('URL priority check for asset:', asset.name);
-      console.log('  primary_original_url:', asset.primary_original_url);
-      console.log('  primary_markup_url:', asset.primary_markup_url);
-      console.log('  primary_cropped_url:', asset.primary_cropped_url);
-      console.log('  secondary_original_url:', asset.secondary_original_url);
-      console.log('  secondary_markup_url:', asset.secondary_markup_url);
-      console.log('  secondary_cropped_url:', asset.secondary_cropped_url);
-      console.log('  url (fallback):', asset.url);
-      console.log('  thumbnail (fallback):', asset.thumbnail);
-      console.log('Selected URLs -> Primary:', primaryUrl, 'Secondary:', secondaryUrl);
-      
       // Upload primary image
       let validPrimaryUrl = primaryUrl;
       if (!validPrimaryUrl.startsWith('http://') && !validPrimaryUrl.startsWith('https://')) {
         validPrimaryUrl = 'https://' + validPrimaryUrl;
       }
-      
+
       // Convert PNG to JPEG for better Canva compatibility
-      console.log('DEBUG PRIMARY - Before conversion:', validPrimaryUrl);
       validPrimaryUrl = convertPngToJpeg(validPrimaryUrl);
-      console.log('DEBUG PRIMARY - After conversion:', validPrimaryUrl);
-      
-      console.log('Final primary URL for upload:', validPrimaryUrl);
-      
-      console.log('Attempting to upload primary image with params:', {
-        type: "image",
-        thumbnailUrl: validPrimaryUrl,
-        url: validPrimaryUrl,
-        mimeType: "image/jpeg", 
-        aiDisclosure: "none",
-      });
 
       let primaryUploadResult;
       try {
@@ -403,21 +452,16 @@ export function App() {
           type: "image",
           thumbnailUrl: validPrimaryUrl,
           url: validPrimaryUrl,
-          mimeType: "image/jpeg", 
+          mimeType: "image/jpeg",
           aiDisclosure: "none",
         });
-        console.log('DEBUG PRIMARY - Upload successful:', primaryUploadResult);
       } catch (uploadError) {
-        console.log('DEBUG PRIMARY - JPEG upload failed, trying original URL:', uploadError);
-        
         // Try with original primary URL
         const originalPrimaryUrl = primaryUrl.startsWith('http') ? primaryUrl : 'https://' + primaryUrl;
-        console.log('DEBUG PRIMARY - Trying original URL:', originalPrimaryUrl);
-        
+
         // Detect actual MIME type from URL
         const actualMimeType = originalPrimaryUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-        console.log('DEBUG PRIMARY - Using MIME type:', actualMimeType);
-        
+
         primaryUploadResult = await upload({
           type: "image",
           thumbnailUrl: originalPrimaryUrl,
@@ -425,26 +469,27 @@ export function App() {
           mimeType: actualMimeType,
           aiDisclosure: "none",
         });
-        console.log('DEBUG PRIMARY - Original URL upload successful:', primaryUploadResult);
       }
       
-      
+
+      // Create image elements using the calculated layout
       let imageElements: any[] = [];
 
       if (!hasDualImages) {
-        // Single image - use full bounding box
+        // Single image
+        const imageConfig = imageLayout.images[0];
         const imageElement = {
           type: "image" as const,
           ref: primaryUploadResult.ref,
-          altText: { text: asset.name, decorative: false },
-          top: boundingTop,
-          left: finalBoundingLeft,
-          width: finalBoundingWidth,
-          height: boundingHeight,
+          altText: { text: imageConfig.altText, decorative: false },
+          top: imageConfig.top,
+          left: imageConfig.left,
+          width: imageConfig.width,
+          height: imageConfig.height,
         };
         imageElements.push(imageElement);
       } else {
-        // Dual images - upload secondary image and create side-by-side layout
+        // Dual images - upload secondary image and create layout based on ComparisonMode
         let validSecondaryUrl = secondaryUrl!;
         if (!validSecondaryUrl.startsWith('http://') && !validSecondaryUrl.startsWith('https://')) {
           validSecondaryUrl = 'https://' + validSecondaryUrl;
@@ -477,42 +522,28 @@ export function App() {
           });
         }
 
-        // Create side-by-side layout with improved spacing
-        const gap = 30; // Slightly larger gap for better separation
-        const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
-
-        // Ensure minimum width
-        if (imageWidth < 100) {
-          throw new Error(`Images too narrow for side-by-side layout. Available width per image: ${imageWidth}px (minimum: 100px)`);
-        }
-
-        // Position images with proper spacing
-        const primaryLeft = finalBoundingLeft;
-        const secondaryLeft = finalBoundingLeft + imageWidth + gap;
-
-        // Validate positioning
-        if (secondaryLeft + imageWidth > designWidth) {
-          throw new Error(`Side-by-side layout exceeds page width. Need ${secondaryLeft + imageWidth}px, have ${designWidth}px`);
-        }
+        // Create dual image elements using the calculated layout
+        const primaryConfig = imageLayout.images[0];
+        const secondaryConfig = imageLayout.images[1];
 
         const primaryElement = {
           type: "image" as const,
           ref: primaryUploadResult.ref,
-          altText: { text: `${asset.name} - Primary`, decorative: false },
-          top: boundingTop,
-          left: primaryLeft,
-          width: imageWidth,
-          height: boundingHeight,
+          altText: { text: primaryConfig.altText, decorative: false },
+          top: primaryConfig.top,
+          left: primaryConfig.left,
+          width: primaryConfig.width,
+          height: primaryConfig.height,
         };
 
         const secondaryElement = {
           type: "image" as const,
           ref: secondaryUploadResult.ref,
-          altText: { text: `${asset.name} - Secondary`, decorative: false },
-          top: boundingTop,
-          left: secondaryLeft,
-          width: imageWidth,
-          height: boundingHeight,
+          altText: { text: secondaryConfig.altText, decorative: false },
+          top: secondaryConfig.top,
+          left: secondaryConfig.left,
+          width: secondaryConfig.width,
+          height: secondaryConfig.height,
         };
 
         imageElements.push(primaryElement, secondaryElement);
@@ -528,23 +559,22 @@ export function App() {
         aiDisclosure: "none",
       });
       
-      // Position PricingSaas logo using exact coordinates for 1080x1080, scale for other sizes
-      let pricingSaasLogoLeft: number, pricingSaasLogoTop: number, pricingSaasLogoWidth: number, pricingSaasLogoHeight: number;
-      
-      if (designWidth === 1080 && designHeight === 1080) {
-        // Use exact coordinates from design for 1080x1080
-        pricingSaasLogoLeft = 920; // X coordinate from design
-        pricingSaasLogoTop = 1028.1; // Y coordinate from design
-        pricingSaasLogoWidth = 146.1; // Width from design
-        pricingSaasLogoHeight = 28.8; // Height from design
-      } else {
-        // Scale coordinates proportionally for other dimensions
-        pricingSaasLogoLeft = (920 / 1080) * designWidth;
-        pricingSaasLogoTop = (1028.1 / 1080) * designHeight;
-        pricingSaasLogoWidth = (146.1 / 1080) * designWidth;
-        pricingSaasLogoHeight = (28.8 / 1080) * designHeight;
-      }
-      
+      // Set page background color
+      await setCurrentPageBackground({
+        color: "#F7F7F7"
+      });
+
+      // Create footer rectangle element - responsive to design width
+      const footerRectangleHeight = footerSpace; // Use the calculated footer space
+      const footerRectangleTop = designHeight - footerRectangleHeight;
+
+      // Position PricingSaas logo - responsive to design dimensions
+      const pricingSaasLogoWidth = Math.max(80, Math.min(146, designWidth * 0.135)); // 146px at 1080px width
+      const pricingSaasLogoHeight = Math.max(16, Math.min(29, designWidth * 0.027)); // 29px at 1080px width
+      // For 1080px width, use original positioning but adjusted, otherwise responsive
+      const pricingSaasLogoLeft = designWidth === 1080 ? 880 : designWidth - pricingSaasLogoWidth - 40; // Moved left from 920 to 880, and increased margin from 20 to 40
+      const pricingSaasLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (pricingSaasLogoHeight / 2); // Center vertically in footer
+
       const logoElement = {
         type: "image" as const,
         ref: logoUploadResult.ref,
@@ -555,40 +585,25 @@ export function App() {
         height: pricingSaasLogoHeight,
       };
 
-      // Set page background color
-      await setCurrentPageBackground({
-        color: "#F7F7F7"
-      });
-
-      // Create footer rectangle element with bounds checking
-      const footerHeight = Math.min(75, designHeight - 50); // Cap at 75px or leave 50px margin from top
-      const footerRectangleTop = Math.max(50, designHeight - footerHeight); // Ensure at least 50px from top
-      
-      // Validate footer positioning
-      if (footerRectangleTop + footerHeight > designHeight) {
-        throw new Error(`Page too small for footer. Need at least ${footerHeight + 50}px height, got ${designHeight}px`);
-      }
-      
-      
       const footerRectangleElement = {
         type: "shape" as const,
         paths: [
           {
-            d: `M 0 0 L ${designWidth} 0 L ${designWidth} ${footerHeight} L 0 ${footerHeight} Z`, // Full width rectangle
+            d: `M 0 0 L ${designWidth} 0 L ${designWidth} ${footerRectangleHeight} L 0 ${footerRectangleHeight} Z`,
             fill: {
               color: "#132442"
             }
           }
         ],
         top: footerRectangleTop,
-        left: 0, // Start at left edge
-        width: designWidth, // Full width
-        height: footerHeight, // 75px height
+        left: 0,
+        width: designWidth,
+        height: footerRectangleHeight,
         viewBox: {
           top: 0,
           left: 0,
           width: designWidth,
-          height: footerHeight
+          height: footerRectangleHeight
         }
       };
 
@@ -611,27 +626,19 @@ export function App() {
             aiDisclosure: "none",
           });
           
-          // Position company logo using exact coordinates for 1080x1080, scale for other sizes
-          let companyLogoLeft: number, companyLogoTop: number;
-          
-          if (designWidth === 1080 && designHeight === 1080) {
-            // Use exact coordinates from design for 1080x1080
-            companyLogoLeft = 20.5;
-            companyLogoTop = 1021.8;
-          } else {
-            // Scale coordinates proportionally for other dimensions
-            companyLogoLeft = (20.5 / 1080) * designWidth;
-            companyLogoTop = (1021.8 / 1080) * designHeight;
-          }
-          
+          // Position company logo - responsive to design dimensions
+          const logoSize = Math.max(20, Math.min(39, designWidth * 0.036)); // 39px at 1080px width
+          const companyLogoLeft = 20;
+          const companyLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (logoSize / 2);
+
           companyLogoElement = {
             type: "image" as const,
             ref: companyLogoUploadResult.ref,
             altText: { text: `${asset.company_slug || 'Company'} logo`, decorative: false },
             top: companyLogoTop,
             left: companyLogoLeft,
-            width: 39, // Width from design
-            height: 38.2, // Height from design
+            width: logoSize,
+            height: logoSize,
           };
         } catch (err) {
           // Continue without company logo if upload fails
@@ -639,275 +646,147 @@ export function App() {
       }
 
 
-      // Create header text element using exact coordinates for 1080x1080, scale for other sizes
+      // Create header text element - responsive to design width
       let headerElement = null;
       if (asset.header && asset.header.trim()) {
-        let headerLeft: number, headerTop: number, headerWidth: number;
-        
-        if (designWidth === 1080 && designHeight === 1080) {
-          // Use exact coordinates from design for 1080x1080
-          headerLeft = 90.9; // X coordinate from design
-          headerTop = 52.7; // Y coordinate from design
-          headerWidth = 864; // Width from design
-        } else {
-          // Scale coordinates proportionally for other dimensions
-          headerLeft = (90.9 / 1080) * designWidth;
-          headerTop = (52.7 / 1080) * designHeight;
-          headerWidth = (864 / 1080) * designWidth;
-        }
-        
+        const headerPadding = 20;
+        const headerLeft = headerPadding;
+        const headerTop = 15; // Increased from 10px for better spacing
+        const headerWidth = designWidth - (headerPadding * 2);
+
+        // Scale font size based on design width
+        const fontSize = Math.max(24, Math.min(48, designWidth * 0.044)); // 48px at 1080px width
+
         headerElement = {
           type: "text" as const,
           children: [asset.header.trim()],
           top: headerTop,
           left: headerLeft,
           width: headerWidth,
-          fontSize: 48,
+          fontSize: fontSize,
           fontWeight: "bold" as const,
           color: "#132442",
           textAlign: "center" as const,
         };
       }
 
-      // Create subheader text element using exact coordinates for 1080x1080, scale for other sizes
+      // Create subheader text element - responsive to design width
       let subheaderElement = null;
       if (asset.subheader && asset.subheader.trim()) {
-        let subheaderLeft: number, subheaderTop: number, subheaderWidth: number;
-        
-        if (designWidth === 1080 && designHeight === 1080) {
-          // Use exact coordinates from design for 1080x1080
-          subheaderLeft = 108; // X coordinate from design
-          subheaderTop = 134.5; // Y coordinate from design
-          subheaderWidth = 864; // Width from design
-        } else {
-          // Scale coordinates proportionally for other dimensions
-          subheaderLeft = (108 / 1080) * designWidth;
-          subheaderTop = (134.5 / 1080) * designHeight;
-          subheaderWidth = (864 / 1080) * designWidth;
-        }
-        
+        const subheaderPadding = 20;
+        const subheaderLeft = subheaderPadding;
+        const subheaderTop = 70; // Increased from 60px for better spacing from header
+        const subheaderWidth = designWidth - (subheaderPadding * 2);
+
+        // Scale font size based on design width
+        const fontSize = Math.max(16, Math.min(27, designWidth * 0.025)); // 27px at 1080px width
+
         subheaderElement = {
           type: "text" as const,
           children: [asset.subheader.trim()],
           top: subheaderTop,
           left: subheaderLeft,
           width: subheaderWidth,
-          fontSize: 27,
+          fontSize: fontSize,
           fontWeight: "normal" as const,
           color: "#132442",
           textAlign: "center" as const,
         };
       }
 
-      // Create date pill elements (bottom right corner) - handle both single and dual versions
+      // Create date pill elements using the calculated layout positions
       let datePillElements: any[] = [];
       let datePillRectangleElements: any[] = [];
-      
+
       const primaryVersion = asset.version && asset.version.trim();
       const secondaryVersion = asset.secondary_version && asset.secondary_version.trim();
-      
-      // Create date pills based on image layout
+
+      // Create date pills based on layout positions
       if (primaryVersion || secondaryVersion) {
-        if (!hasDualImages || !secondaryVersion) {
-          // Single version pill
-          const versionToShow = primaryVersion || secondaryVersion;
-          const formattedDate = formatVersionDate(versionToShow!);
+        const pillWidth = 120;
+        const pillHeight = 32;
 
-          if (formattedDate) {
-            let pillLeft: number, pillTop: number, pillWidth: number, pillHeight: number;
+        imageLayout.versionLabelPositions.forEach((position, index) => {
+          const versionToShow = index === 0 ? primaryVersion : secondaryVersion;
+          if (!versionToShow) return;
 
-            if (designWidth === 1080 && designHeight === 1080) {
-              pillLeft = 480;
-              pillTop = 911.3;
-              pillWidth = 120;
-              pillHeight = 32;
-            } else {
-              pillLeft = (480 / 1080) * designWidth;
-              pillTop = (911.3 / 1080) * designHeight;
-              pillWidth = (120 / 1080) * designWidth;
-              pillHeight = (32 / 1080) * designHeight;
-            }
+          const formattedDate = formatVersionDate(versionToShow);
+          if (!formattedDate) return;
 
-            datePillRectangleElements.push({
-              type: "shape" as const,
-              paths: [
-                {
-                  d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
-                  fill: { color: "#FFFFFF" }
-                }
-              ],
-              top: pillTop,
-              left: pillLeft,
-              width: pillWidth,
-              height: pillHeight,
-              viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
-            });
+          // Center the pill within the label position area
+          const pillLeft = position.left + (position.width / 2) - (pillWidth / 2);
+          const pillTop = position.top;
 
-            datePillElements.push({
-              type: "text" as const,
-              children: [formattedDate],
-              top: pillTop + (pillHeight / 2) - 7,
-              left: pillLeft,
-              width: pillWidth,
-              fontSize: 14,
-              fontWeight: "normal" as const,
-              color: "#000000",
-              textAlign: "center" as const,
-            });
-          }
-        } else {
-          // Dual version pills for side-by-side layout
-          const primaryFormattedDate = formatVersionDate(primaryVersion);
-          const secondaryFormattedDate = formatVersionDate(secondaryVersion);
+          datePillRectangleElements.push({
+            type: "shape" as const,
+            paths: [
+              {
+                d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
+                fill: { color: "#FFFFFF" }
+              }
+            ],
+            top: pillTop,
+            left: pillLeft,
+            width: pillWidth,
+            height: pillHeight,
+            viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
+          });
 
-          if (primaryFormattedDate || secondaryFormattedDate) {
-            const gap = 30;
-            const imageWidth = Math.round((finalBoundingWidth - gap) / 2);
-
-            let pillWidth: number, pillHeight: number, pillTop: number;
-
-            if (designWidth === 1080 && designHeight === 1080) {
-              pillWidth = 120;
-              pillHeight = 32;
-              pillTop = 911.3;
-            } else {
-              pillWidth = (120 / 1080) * designWidth;
-              pillHeight = (32 / 1080) * designHeight;
-              pillTop = (911.3 / 1080) * designHeight;
-            }
-
-            // Position pills under their respective images
-            const primaryImageCenterX = finalBoundingLeft + (imageWidth / 2);
-            const secondaryImageCenterX = finalBoundingLeft + imageWidth + gap + (imageWidth / 2);
-
-            const primaryPillLeft = primaryImageCenterX - (pillWidth / 2);
-            const secondaryPillLeft = secondaryImageCenterX - (pillWidth / 2);
-
-            // Primary version pill
-            if (primaryFormattedDate) {
-              datePillRectangleElements.push({
-                type: "shape" as const,
-                paths: [
-                  {
-                    d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
-                    fill: { color: "#FFFFFF" }
-                  }
-                ],
-                top: pillTop,
-                left: primaryPillLeft,
-                width: pillWidth,
-                height: pillHeight,
-                viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
-              });
-
-              datePillElements.push({
-                type: "text" as const,
-                children: [primaryFormattedDate],
-                top: pillTop + (pillHeight / 2) - 7,
-                left: primaryPillLeft,
-                width: pillWidth,
-                fontSize: 14,
-                fontWeight: "normal" as const,
-                color: "#000000",
-                textAlign: "center" as const,
-              });
-            }
-
-            // Secondary version pill
-            if (secondaryFormattedDate) {
-              datePillRectangleElements.push({
-                type: "shape" as const,
-                paths: [
-                  {
-                    d: `M 0 0 L ${pillWidth} 0 L ${pillWidth} ${pillHeight} L 0 ${pillHeight} Z`,
-                    fill: { color: "#FFFFFF" }
-                  }
-                ],
-                top: pillTop,
-                left: secondaryPillLeft,
-                width: pillWidth,
-                height: pillHeight,
-                viewBox: { top: 0, left: 0, width: pillWidth, height: pillHeight }
-              });
-
-              datePillElements.push({
-                type: "text" as const,
-                children: [secondaryFormattedDate],
-                top: pillTop + (pillHeight / 2) - 7,
-                left: secondaryPillLeft,
-                width: pillWidth,
-                fontSize: 14,
-                fontWeight: "normal" as const,
-                color: "#000000",
-                textAlign: "center" as const,
-              });
-            }
-          }
-        }
+          datePillElements.push({
+            type: "text" as const,
+            children: [formattedDate],
+            top: pillTop + (pillHeight / 2) - 7,
+            left: pillLeft,
+            width: pillWidth,
+            fontSize: 14,
+            fontWeight: "normal" as const,
+            color: "#000000",
+            textAlign: "center" as const,
+          });
+        });
       }
 
-      // Create "curated by" text element using exact coordinates for 1080x1080, scale for other sizes
-      let curatedByLeft: number, curatedByTop: number, curatedByWidth: number;
-      
-      if (designWidth === 1080 && designHeight === 1080) {
-        // Use exact coordinates from design for 1080x1080
-        curatedByLeft = 754.2; // X coordinate from design
-        curatedByTop = 1031.8; // Y coordinate from design
-        curatedByWidth = 149.8; // Width from design
-      } else {
-        // Scale coordinates proportionally for other dimensions
-        curatedByLeft = (754.2 / 1080) * designWidth;
-        curatedByTop = (1031.8 / 1080) * designHeight;
-        curatedByWidth = (149.8 / 1080) * designWidth;
-      }
-      
-      
+      // Create "curated by" text element - responsive positioning
+      const curatedByFontSize = Math.max(10, Math.min(14, designWidth * 0.013)); // 14px at 1080px width
+      const curatedByWidth = 100;
+      // For 1080px width, use original positioning, otherwise responsive
+      const curatedByLeft = designWidth === 1080 ? 754 : designWidth - curatedByWidth - 20;
+      const curatedByTop = footerRectangleTop + (footerRectangleHeight / 2) - (curatedByFontSize / 2);
+
       const curatedByElement = {
         type: "text" as const,
-        children: ["curated by"],
+        children: ["Curated by"],
         top: curatedByTop,
         left: curatedByLeft,
-        width: curatedByWidth, // Fixed width
-        fontSize: normalizeFontSize("curated by", 14), // Normalized for visual consistency
-        fontWeight: "normal" as const, // Ensure same weight as company slug
+        width: curatedByWidth,
+        fontSize: curatedByFontSize,
+        fontWeight: "normal" as const,
         color: "#E4E4E4",
         textAlign: "end" as const,
       };
       
 
-      // Create company slug text element (positioned at bottom for 1080x1080)
+      // Create company slug text element - responsive positioning
       let companySlugElement = null;
       if (asset.company_slug && asset.company_slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.company_slug);
-        // Position company slug using exact coordinates for 1080x1080, scale for other sizes
-        let slugLeft: number, slugTop: number, slugWidth: number;
-        
-        if (designWidth === 1080 && designHeight === 1080) {
-          // Use exact coordinates from design for 1080x1080
-          slugLeft = 74.7; // X coordinate from design
-          slugTop = 1031.8; // Y coordinate from design
-          slugWidth = 880.2; // Width from design
-        } else {
-          // Scale coordinates proportionally for other dimensions
-          slugLeft = (74.7 / 1080) * designWidth;
-          slugTop = (1031.8 / 1080) * designHeight;
-          slugWidth = (880.2 / 1080) * designWidth;
-        }
-        
-        
+        const slugFontSize = Math.max(10, Math.min(14, designWidth * 0.013)); // 14px at 1080px width
+        const logoSize = Math.max(20, Math.min(39, designWidth * 0.036));
+        const slugLeft = 20 + logoSize + 10; // After logo + 10px gap
+        const slugWidth = designWidth - slugLeft - 120 - 20; // Leave space for "curated by" text
+        const slugTop = footerRectangleTop + (footerRectangleHeight / 2) - (slugFontSize / 2);
+
         companySlugElement = {
           type: "text" as const,
           children: [formattedSlug],
           top: slugTop,
           left: slugLeft,
           width: slugWidth,
-          fontSize: normalizeFontSize("curated by", 14), // Same size as "curated by" text
-          fontWeight: "bold" as const, // Bold styling for company name
-          color: "#E4E4E4", // Same color as "curated by" text
+          fontSize: slugFontSize,
+          fontWeight: "bold" as const,
+          color: "#E4E4E4",
           textAlign: "start" as const,
- // Use hardcoded Aspekta font
         };
-        
       }
 
 
@@ -942,79 +821,65 @@ export function App() {
         // Add company logo at bottom (if available)
         if (companyLogoElement) {
           try {
-            console.log('DEBUG: Adding company logo');
             await addElementAtPoint(companyLogoElement);
-            console.log('DEBUG: Company logo added successfully');
           } catch (err) {
             console.error('ERROR: Failed to add company logo:', err);
             throw new Error(`Failed to add company logo: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
         // Add company slug text (to the right of company logo)
         if (companySlugElement) {
           try {
-            console.log('DEBUG: Adding company slug text element');
             await addElementAtPoint(companySlugElement);
-            console.log('DEBUG: Company slug text element added successfully');
           } catch (err) {
             console.error('ERROR: Failed to add company slug text:', err);
             throw new Error(`Failed to add company slug text: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
         // Add "curated by" text
         try {
-          console.log('DEBUG: Adding curated by text element');
           await addElementAtPoint(curatedByElement);
-          console.log('DEBUG: Curated by text element added successfully');
         } catch (err) {
           console.error('ERROR: Failed to add curated by text:', err);
           throw new Error(`Failed to add curated by text: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
-        
+
         // Add header text element (if available)
         if (headerElement) {
           try {
-            console.log('DEBUG: Adding header text element');
             await addElementAtPoint(headerElement);
-            console.log('DEBUG: Header text element added successfully');
           } catch (err) {
             console.error('ERROR: Failed to add header text:', err);
             throw new Error(`Failed to add header text: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
         // Add subheader text element (if available)
         if (subheaderElement) {
           try {
-            console.log('DEBUG: Adding subheader text element');
             await addElementAtPoint(subheaderElement);
-            console.log('DEBUG: Subheader text element added successfully');
           } catch (err) {
             console.error('ERROR: Failed to add subheader text:', err);
             throw new Error(`Failed to add subheader text: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
         // Add date pill rectangles (if available)
         for (const [index, rectangle] of datePillRectangleElements.entries()) {
           try {
-            console.log(`DEBUG: Adding date pill rectangle ${index + 1}`);
             await addElementAtPoint(rectangle);
-            console.log(`DEBUG: Date pill rectangle ${index + 1} added successfully`);
           } catch (err) {
             console.error(`ERROR: Failed to add date pill rectangle ${index + 1}:`, err);
             throw new Error(`Failed to add date pill rectangle ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
         // Add date pill texts (if available)
         for (const [index, pill] of datePillElements.entries()) {
           try {
-            console.log(`DEBUG: Adding date pill text ${index + 1}`);
             await addElementAtPoint(pill);
-            console.log(`DEBUG: Date pill text ${index + 1} added successfully`);
           } catch (err) {
             console.error(`ERROR: Failed to add date pill text ${index + 1}:`, err);
             throw new Error(`Failed to add date pill text ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -1265,7 +1130,7 @@ export function App() {
           }}>
             <Rows spacing="2u">
               <Text size="medium">Design Dimensions</Text>
-              <Grid columns={2} spacing="2u">
+              <Rows spacing="2u">
                 <Box>
                   <div style={{ marginBottom: '4px' }}>
                     <Text size="small" tone="secondary">Width (px)</Text>
@@ -1304,7 +1169,26 @@ export function App() {
                     max="2000"
                   />
                 </Box>
-              </Grid>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Footer Height (px)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={footerHeight}
+                    onChange={(e) => setFooterHeight(Number(e.target.value) || 75)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="30"
+                    max="200"
+                  />
+                </Box>
+              </Rows>
               <Text size="small" tone="tertiary">
                 Logo will be positioned 32px from top-right corner
               </Text>
