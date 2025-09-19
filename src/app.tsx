@@ -3,7 +3,7 @@ import { addElementAtPoint, addElementAtCursor, setCurrentPageBackground } from 
 import { upload } from "@canva/asset";
 import { features } from "@canva/platform";
 import "@canva/app-ui-kit/styles.css";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import * as styles from "./index.css";
 
 interface Asset {
@@ -41,6 +41,18 @@ interface Collection {
 
 type TabType = 'collections' | 'settings';
 
+interface UploadCache {
+  ref: any;
+  timestamp: number;
+  url: string;
+}
+
+interface UploadProgress {
+  status: 'uploading' | 'verifying' | 'completed' | 'failed';
+  progress: number;
+  message: string;
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('collections');
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -51,6 +63,9 @@ export function App() {
   const [designWidth, setDesignWidth] = useState(1080);
   const [designHeight, setDesignHeight] = useState(1080);
   const [footerHeight, setFooterHeight] = useState(75);
+  const [uploadCache, setUploadCache] = useState<Map<string, UploadCache>>(new Map());
+  const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress>>(new Map());
+  const abortController = useRef<AbortController | null>(null);
 
   // Load collections on app start
   useEffect(() => {
@@ -61,7 +76,7 @@ export function App() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Call edge function to get collections (no containerIds = root level)
       const response = await fetch(`${SUPABASE_URL}/functions/v1/canva-get-images`, {
         method: "POST",
@@ -80,7 +95,7 @@ export function App() {
       }
 
       const data = await response.json();
-      
+
       if (data.success && data.containers) {
         setCollections(data.containers.map((container: any) => ({
           id: container.id,
@@ -103,7 +118,7 @@ export function App() {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Call edge function to get assets for specific collection
       const response = await fetch(`${SUPABASE_URL}/functions/v1/canva-get-images`, {
         method: "POST",
@@ -122,7 +137,7 @@ export function App() {
       }
 
       const data = await response.json();
-      
+
       if (data.success && data.resources) {
         setAssets(data.resources);
       } else {
@@ -148,15 +163,104 @@ export function App() {
     setError(null);
   };
 
+  // Optimized upload functions
+  const validateImageUrl = async (url: string): Promise<boolean> => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-  const formatCompanySlug = (slug: string): string => {
-    if (!slug) return '';
-    
-    // Replace dots with spaces and capitalize each word
-    return slug
-      .split('.')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
+      await fetch(url, {
+        method: 'HEAD',
+        signal: controller.signal,
+        mode: 'no-cors'
+      });
+
+      clearTimeout(timeoutId);
+      return true;
+    } catch {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.crossOrigin = 'anonymous';
+        img.src = url;
+        setTimeout(() => resolve(false), 5000);
+      });
+    }
+  };
+
+  const getProgressiveFallbackUrls = (asset: Asset): string[] => {
+    const urls = [
+      asset.primary_cropped_url,
+      asset.primary_original_url,
+      asset.primary_markup_url,
+      asset.url,
+      asset.thumbnail
+    ].filter(Boolean);
+
+    return urls.map(url => ensureHttps(convertPngToJpeg(url!)));
+  };
+
+  const ensureHttps = (url: string): string => {
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return 'https://' + url;
+    }
+    return url.replace(/^http:/, 'https:');
+  };
+
+  const convertPngToJpeg = (url: string): string => {
+    if (!url) return url;
+
+    const lowerUrl = url.toLowerCase();
+    if (lowerUrl.endsWith('.png') || lowerUrl.includes('.png?') || lowerUrl.includes('.png&')) {
+      if (url.includes('cloudinary.com')) {
+        let convertedUrl = url;
+        if (url.includes('/upload/')) {
+          convertedUrl = url.replace('/upload/', '/upload/f_jpg/');
+        } else {
+          convertedUrl = url.replace(/\.png/gi, '.jpeg');
+        }
+        return convertedUrl;
+      } else {
+        let convertedUrl = url;
+        if (url.includes('?')) {
+          convertedUrl = url + '&format=jpeg';
+        } else {
+          convertedUrl = url + '?format=jpeg';
+        }
+        convertedUrl = convertedUrl.replace(/\.png/gi, '.jpg');
+        return convertedUrl;
+      }
+    }
+    return url;
+  };
+
+  const uploadWithRetry = async (urls: string[], config: any, maxRetries = 3): Promise<any> => {
+    let lastError: Error | null = null;
+
+    for (const url of urls) {
+      const isValid = await validateImageUrl(url);
+      if (!isValid) continue;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const uploadConfig = {
+            ...config,
+            url: url,
+            thumbnailUrl: url
+          };
+
+          const result = await upload(uploadConfig);
+          return result;
+        } catch (error) {
+          lastError = error as Error;
+          if (attempt === maxRetries) break;
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        }
+      }
+    }
+
+    throw lastError || new Error('All upload attempts failed');
   };
 
   // Helper function to normalize font size based on text case
@@ -170,11 +274,11 @@ export function App() {
   // Helper function to format version date (yyyymmdd to readable format)
   const formatVersionDate = (version: string): string => {
     if (!version || version.length !== 8) return '';
-    
+
     const year = version.substring(0, 4);
     const month = version.substring(4, 6);
     const day = version.substring(6, 8);
-    
+
     const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
@@ -182,7 +286,7 @@ export function App() {
   // Helper function to parse aspect ratio string (e.g., "16:9", "1.91:1") into width/height ratio
   const parseAspectRatio = (aspectRatio: string): number => {
     if (!aspectRatio) return 1; // Default to 1:1 (square)
-    
+
     // Handle decimal format like "1.91:1"
     if (aspectRatio.includes(':')) {
       const [widthStr, heightStr] = aspectRatio.split(':');
@@ -190,55 +294,37 @@ export function App() {
       const height = parseFloat(heightStr);
       return width / height;
     }
-    
+
     // Handle simple decimal format like "1.91"
     return parseFloat(aspectRatio) || 1;
   };
 
-  // Helper function to convert PNG URLs to JPEG for better Canva compatibility
-  const convertPngToJpeg = (url: string): string => {
-    if (!url) {
-      return url;
-    }
+  const formatCompanySlug = (slug: string): string => {
+    if (!slug) return '';
 
-    // Convert any PNG URL to JPEG for better Canva compatibility (case insensitive)
-    const lowerUrl = url.toLowerCase();
-    if (lowerUrl.endsWith('.png') || lowerUrl.includes('.png?') || lowerUrl.includes('.png&')) {
-      if (url.includes('cloudinary.com')) {
-        // For Cloudinary, we can use their format transformation
-        let convertedUrl = url;
-        if (url.includes('/upload/')) {
-          // Insert format transformation in Cloudinary URL
-          convertedUrl = url.replace('/upload/', '/upload/f_jpg/');
-        } else {
-          // Fallback: simple extension replacement
-          convertedUrl = url.replace(/\.png/gi, '.jpeg');
-        }
-        return convertedUrl;
-      } else {
-        // For other services, try multiple approaches
-        let convertedUrl = url;
-
-        // First try: Add format parameter
-        if (url.includes('?')) {
-          convertedUrl = url + '&format=jpeg';
-        } else {
-          convertedUrl = url + '?format=jpeg';
-        }
-
-        // Also try changing extension
-        convertedUrl = convertedUrl.replace(/\.png/gi, '.jpg');
-
-        return convertedUrl;
-      }
-    }
-
-    return url;
+    // Replace dots with spaces and capitalize each word
+    return slug
+      .split('.')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
   };
 
   const insertAsset = async (asset: Asset) => {
     try {
       setError(null);
+
+      // Set upload progress
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'uploading',
+        progress: 0,
+        message: 'Preparing upload...'
+      }));
+
+      // Abort any previous upload
+      if (abortController.current) {
+        abortController.current.abort();
+      }
+      abortController.current = new AbortController();
 
       const assetType = asset.asset_type || asset.type || 'simple';
       const comparisonMode = asset.comparison_mode || 'single';
@@ -248,21 +334,31 @@ export function App() {
         (asset.secondary_cropped_url || asset.secondary_original_url) &&
         (asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
 
-      // Prioritize cropped URLs, fall back to original URLs
-      const primaryUrl = asset.primary_cropped_url || asset.primary_original_url || asset.primary_markup_url || asset.url || asset.thumbnail;
-      const secondaryUrl = hasDualImages ? (asset.secondary_cropped_url || asset.secondary_original_url || asset.secondary_markup_url) : null;
-      
+      // Get progressive fallback URLs for primary image
+      const primaryUrls = getProgressiveFallbackUrls(asset);
+
+      // Get secondary URLs if dual images
+      const secondaryUrls = hasDualImages ? [
+        asset.secondary_cropped_url,
+        asset.secondary_original_url,
+        asset.secondary_markup_url
+      ].filter(Boolean).map(url => ensureHttps(convertPngToJpeg(url!))) : [];
+
+      if (primaryUrls.length === 0) {
+        throw new Error('No primary image URL available');
+      }
+
       // Parse aspect ratio and determine layout - use original image aspect ratio if available
       let aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
-      
+
       // Try to get original aspect ratio from the selected URLs
-      if (primaryUrl) {
+      if (primaryUrls[0]) {
         try {
           // Create a temporary image to get natural dimensions
           const img = new Image();
           img.crossOrigin = 'anonymous';
-          
-          const originalAspectRatio = await new Promise<number>((resolve, reject) => {
+
+          const originalAspectRatio = await new Promise<number>((resolve) => {
             img.onload = () => {
               const ratio = img.naturalWidth / img.naturalHeight;
               resolve(ratio);
@@ -270,7 +366,7 @@ export function App() {
             img.onerror = () => {
               resolve(aspectRatio); // fallback to crop aspect ratio
             };
-            img.src = primaryUrl;
+            img.src = primaryUrls[0];
           });
 
           aspectRatio = originalAspectRatio;
@@ -278,7 +374,7 @@ export function App() {
           // Keep the original aspectRatio from crop_aspect_ratio
         }
       }
-      
+
       // Calculate dynamic image area based on settings
       const headerSpace = 110; // Increased space for header and subheader (10% more from 100px)
       const footerSpace = footerHeight; // Use footer height from settings
@@ -295,7 +391,6 @@ export function App() {
       if (imageAreaWidth < 200 || imageAreaHeight < 150) {
         throw new Error(`Design too small for images. Need at least 240x265px total, got ${designWidth}x${designHeight}px`);
       }
-
 
       // Calculate image layout based on AssetType and ComparisonMode
       let imageLayout: {
@@ -432,45 +527,49 @@ export function App() {
           };
         }
       }
-      
-      if (!primaryUrl) {
-        throw new Error('No primary image URL available');
-      }
-      
-      // Upload primary image
-      let validPrimaryUrl = primaryUrl;
-      if (!validPrimaryUrl.startsWith('http://') && !validPrimaryUrl.startsWith('https://')) {
-        validPrimaryUrl = 'https://' + validPrimaryUrl;
-      }
 
-      // Convert PNG to JPEG for better Canva compatibility
-      validPrimaryUrl = convertPngToJpeg(validPrimaryUrl);
+      // Check session cache first
+      const primaryCacheKey = primaryUrls[0];
+      const cachedPrimary = uploadCache.get(primaryCacheKey);
+      let primaryUploadResult: any;
 
-      let primaryUploadResult;
-      try {
-        primaryUploadResult = await upload({
+      if (cachedPrimary && Date.now() - cachedPrimary.timestamp < 300000) {
+        // Use cached result if less than 5 minutes old
+        primaryUploadResult = { ref: cachedPrimary.ref };
+        setUploadProgress(prev => new Map(prev).set(asset.id, {
+          status: 'completed',
+          progress: 50,
+          message: 'Using cached primary image...'
+        }));
+      } else {
+        // Upload primary image with retry logic
+        setUploadProgress(prev => new Map(prev).set(asset.id, {
+          status: 'uploading',
+          progress: 10,
+          message: 'Uploading primary image...'
+        }));
+
+        const mimeType = primaryUrls[0].toLowerCase().includes('.png') ? 'image/png' : 'image/jpeg';
+
+        primaryUploadResult = await uploadWithRetry(primaryUrls, {
           type: "image",
-          thumbnailUrl: validPrimaryUrl,
-          url: validPrimaryUrl,
-          mimeType: "image/jpeg",
+          mimeType: mimeType,
           aiDisclosure: "none",
         });
-      } catch (uploadError) {
-        // Try with original primary URL
-        const originalPrimaryUrl = primaryUrl.startsWith('http') ? primaryUrl : 'https://' + primaryUrl;
 
-        // Detect actual MIME type from URL
-        const actualMimeType = originalPrimaryUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+        // Cache the result
+        setUploadCache(prev => new Map(prev).set(primaryCacheKey, {
+          ref: primaryUploadResult.ref,
+          timestamp: Date.now(),
+          url: primaryUrls[0]
+        }));
 
-        primaryUploadResult = await upload({
-          type: "image",
-          thumbnailUrl: originalPrimaryUrl,
-          url: originalPrimaryUrl,
-          mimeType: actualMimeType,
-          aiDisclosure: "none",
-        });
+        setUploadProgress(prev => new Map(prev).set(asset.id, {
+          status: 'verifying',
+          progress: 40,
+          message: 'Verifying primary image...'
+        }));
       }
-      
 
       // Create image elements using the calculated layout
       let imageElements: any[] = [];
@@ -490,36 +589,50 @@ export function App() {
         imageElements.push(imageElement);
       } else {
         // Dual images - upload secondary image and create layout based on ComparisonMode
-        let validSecondaryUrl = secondaryUrl!;
-        if (!validSecondaryUrl.startsWith('http://') && !validSecondaryUrl.startsWith('https://')) {
-          validSecondaryUrl = 'https://' + validSecondaryUrl;
+        if (secondaryUrls.length === 0) {
+          throw new Error('No secondary image URL available');
         }
 
-        // Convert PNG to JPEG for better Canva compatibility
-        validSecondaryUrl = convertPngToJpeg(validSecondaryUrl);
+        // Check session cache for secondary image
+        const secondaryCacheKey = secondaryUrls[0];
+        const cachedSecondary = uploadCache.get(secondaryCacheKey);
+        let secondaryUploadResult: any;
 
-        // Upload secondary image
-        let secondaryUploadResult;
-        const originalSecondaryUrl = secondaryUrl!.startsWith('http') ? secondaryUrl! : 'https://' + secondaryUrl!;
+        if (cachedSecondary && Date.now() - cachedSecondary.timestamp < 300000) {
+          // Use cached result
+          secondaryUploadResult = { ref: cachedSecondary.ref };
+          setUploadProgress(prev => new Map(prev).set(asset.id, {
+            status: 'completed',
+            progress: 80,
+            message: 'Using cached secondary image...'
+          }));
+        } else {
+          setUploadProgress(prev => new Map(prev).set(asset.id, {
+            status: 'uploading',
+            progress: 60,
+            message: 'Uploading secondary image...'
+          }));
 
-        try {
-          // Try with original URL first
-          secondaryUploadResult = await upload({
+          const mimeType = secondaryUrls[0].toLowerCase().includes('.png') ? 'image/png' : 'image/jpeg';
+
+          secondaryUploadResult = await uploadWithRetry(secondaryUrls, {
             type: "image",
-            thumbnailUrl: originalSecondaryUrl,
-            url: originalSecondaryUrl,
-            mimeType: originalSecondaryUrl.toLowerCase().includes('.png') ? "image/png" : "image/jpeg",
+            mimeType: mimeType,
             aiDisclosure: "none",
           });
-        } catch (originalError) {
-          // Fallback to converted URL
-          secondaryUploadResult = await upload({
-            type: "image",
-            thumbnailUrl: validSecondaryUrl,
-            url: validSecondaryUrl,
-            mimeType: "image/jpeg",
-            aiDisclosure: "none",
-          });
+
+          // Cache the result
+          setUploadCache(prev => new Map(prev).set(secondaryCacheKey, {
+            ref: secondaryUploadResult.ref,
+            timestamp: Date.now(),
+            url: secondaryUrls[0]
+          }));
+
+          setUploadProgress(prev => new Map(prev).set(asset.id, {
+            status: 'verifying',
+            progress: 90,
+            message: 'Verifying secondary image...'
+          }));
         }
 
         // Create dual image elements using the calculated layout
@@ -558,14 +671,14 @@ export function App() {
         mimeType: "image/png",
         aiDisclosure: "none",
       });
-      
+
       // Set page background color
       await setCurrentPageBackground({
         color: "#F7F7F7"
       });
 
       // Create footer rectangle element - responsive to design width
-      const footerRectangleHeight = footerSpace; // Use the calculated footer space
+      const footerRectangleHeight = footerHeight; // Use the calculated footer space
       const footerRectangleTop = designHeight - footerRectangleHeight;
 
       // Position PricingSaas logo - responsive to design dimensions
@@ -607,17 +720,16 @@ export function App() {
         }
       };
 
-
       // Create company logo element at bottom (if available)
       let companyLogoElement = null;
       if (asset.company_logo_url && asset.company_logo_url.trim()) {
         try {
           // Ensure HTTPS URL for Canva upload
           const logoUrl = asset.company_logo_url.replace(/^http:\/\//, 'https://');
-          
+
           // Detect MIME type from file extension
           const mimeType = logoUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-          
+
           const companyLogoUploadResult = await upload({
             type: "image",
             thumbnailUrl: logoUrl,
@@ -625,7 +737,7 @@ export function App() {
             mimeType: mimeType,
             aiDisclosure: "none",
           });
-          
+
           // Position company logo - responsive to design dimensions
           const logoSize = Math.max(20, Math.min(39, designWidth * 0.036)); // 39px at 1080px width
           const companyLogoLeft = 20;
@@ -644,7 +756,6 @@ export function App() {
           // Continue without company logo if upload fails
         }
       }
-
 
       // Create header text element - responsive to design width
       let headerElement = null;
@@ -764,7 +875,6 @@ export function App() {
         color: "#E4E4E4",
         textAlign: "end" as const,
       };
-      
 
       // Create company slug text element - responsive positioning
       let companySlugElement = null;
@@ -789,7 +899,6 @@ export function App() {
         };
       }
 
-
       // Add to design using the same pattern as reference app
       if (features.isSupported(addElementAtPoint)) {
         // Add all image elements (single or dual)
@@ -805,19 +914,19 @@ export function App() {
             throw new Error(`Failed to add image ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
         try {
           await addElementAtPoint(footerRectangleElement);
         } catch (err) {
           throw new Error(`Failed to add footer rectangle: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
-        
+
         try {
           await addElementAtPoint(logoElement);
         } catch (err) {
           throw new Error(`Failed to add PricingSaas logo: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
-        
+
         // Add company logo at bottom (if available)
         if (companyLogoElement) {
           try {
@@ -885,7 +994,7 @@ export function App() {
             throw new Error(`Failed to add date pill text ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
           }
         }
-        
+
       } else if (features.isSupported(addElementAtCursor)) {
         // Add all image elements
         for (const imageElement of imageElements) {
@@ -916,24 +1025,53 @@ export function App() {
       } else {
         throw new Error("Image insertion not supported");
       }
-      
+
+      // Mark upload as completed
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'completed',
+        progress: 100,
+        message: 'Asset inserted successfully!'
+      }));
+
+      // Clear progress after 2 seconds
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const updated = new Map(prev);
+          updated.delete(asset.id);
+          return updated;
+        });
+      }, 2000);
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to add elements to design';
       setError(errorMessage);
       console.error('Error inserting asset:', err);
+
+      // Mark upload as failed
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'failed',
+        progress: 0,
+        message: errorMessage
+      }));
+
+      // Clear progress after 5 seconds
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const updated = new Map(prev);
+          updated.delete(asset.id);
+          return updated;
+        });
+      }, 5000);
     }
   };
 
   const formatCollectionName = (name: string, maxWidth: number = 25): string => {
     if (name.length <= maxWidth) {
-      // Pad with spaces if shorter than maxWidth
       return name + '.'.repeat(maxWidth - name.length);
     } else {
-      // Truncate and add dots if longer than maxWidth
       return name.substring(0, maxWidth - 3) + '...';
     }
   };
-
 
   const renderTabContent = () => {
     if (activeTab === 'collections') {
@@ -943,8 +1081,8 @@ export function App() {
           <Box paddingX="3u" paddingY="2u">
             {selectedCollection ? (
               <Rows spacing="2u">
-                <Button 
-                  variant="secondary" 
+                <Button
+                  variant="secondary"
                   onClick={goBackToCollections}
                 >
                   ← Collections
@@ -985,7 +1123,11 @@ export function App() {
                   gap: '24px',
                   padding: '16px 0'
                 }}>
-                  {assets.map((asset) => (
+                  {assets.map((asset) => {
+                    const progress = uploadProgress.get(asset.id);
+                    const isUploading = progress && progress.status !== 'completed';
+
+                    return (
                     <div
                       key={asset.id}
                       style={{
@@ -994,10 +1136,11 @@ export function App() {
                         borderRadius: '16px',
                         overflow: 'hidden',
                         transition: 'all 0.2s ease',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
+                        cursor: isUploading ? 'not-allowed' : 'pointer',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                        opacity: isUploading ? 0.7 : 1
                       }}
-                      onClick={() => insertAsset(asset)}
+                      onClick={() => !isUploading && insertAsset(asset)}
                     >
                       {/* Image thumbnail */}
                       <div
@@ -1014,35 +1157,79 @@ export function App() {
                           position: 'relative'
                         }}
                       >
-                        {!(asset.url || asset.thumbnail) && (
+                        {/* Upload progress overlay */}
+                        {progress && (
+                          <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'white',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            zIndex: 10
+                          }}>
+                            <div style={{ marginBottom: '8px' }}>
+                              {progress.status === 'failed' ? '❌' : progress.status === 'completed' ? '✅' : '⏳'}
+                            </div>
+                            <div style={{ marginBottom: '8px', textAlign: 'center' }}>
+                              {progress.message}
+                            </div>
+                            {progress.status !== 'failed' && progress.status !== 'completed' && (
+                              <div style={{
+                                width: '80%',
+                                height: '4px',
+                                backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                                borderRadius: '2px',
+                                overflow: 'hidden'
+                              }}>
+                                <div style={{
+                                  width: `${progress.progress}%`,
+                                  height: '100%',
+                                  backgroundColor: '#4ade80',
+                                  transition: 'width 0.3s ease'
+                                }} />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {!(asset.url || asset.thumbnail) && !progress && (
                           <Text size="small" tone="tertiary">
                             No Preview Available
                           </Text>
                         )}
                         {/* Hover overlay */}
-                        <div style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          opacity: 0,
-                          transition: 'opacity 0.2s ease',
-                          color: 'white',
-                          fontSize: '14px',
-                          fontWeight: '500'
-                        }}>
-                          Click to Insert
-                        </div>
+                        {!progress && (
+                          <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: 0,
+                            transition: 'opacity 0.2s ease',
+                            color: 'white',
+                            fontSize: '14px',
+                            fontWeight: '500'
+                          }}>
+                            Click to Insert
+                          </div>
+                        )}
                       </div>
-                      
+
                       {/* Asset details */}
                       <div style={{ padding: '16px' }}>
-                        <div style={{ 
+                        <div style={{
                           fontWeight: '500',
                           marginBottom: '4px',
                           fontSize: '16px',
@@ -1051,11 +1238,12 @@ export function App() {
                           {asset.name}
                         </div>
                         <Text size="small" tone="secondary">
-                          Ready to add to your design
+                          {progress ? progress.message : 'Ready to add to your design'}
                         </Text>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </Box>
             ) : (
@@ -1086,11 +1274,11 @@ export function App() {
                         justifyContent: 'flex-start',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                        <div style={{ fontSize: '16px', lineHeight: '1', marginTop: '2px' }}>
+                      <span style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                        <span style={{ fontSize: '16px', lineHeight: '1', marginTop: '2px' }}>
                           📁
-                        </div>
-                        <div>
+                        </span>
+                        <span>
                           <div style={{ fontFamily: 'monospace', fontSize: '14px' }}>
                             {formatCollectionName(collection.name)}
                           </div>
@@ -1101,8 +1289,8 @@ export function App() {
                               </Text>
                             </div>
                           )}
-                        </div>
-                      </div>
+                        </span>
+                      </span>
                     </Button>
                   ))}
                 </Rows>
@@ -1122,9 +1310,9 @@ export function App() {
     if (activeTab === 'settings') {
       return (
         <Box paddingX="3u">
-          <div style={{ 
-            backgroundColor: '#f8fafc', 
-            border: '1px solid #e2e8f0', 
+          <div style={{
+            backgroundColor: '#f8fafc',
+            border: '1px solid #e2e8f0',
             borderRadius: '8px',
             padding: '16px'
           }}>
@@ -1225,9 +1413,9 @@ export function App() {
         {/* Error display */}
         {error && (
           <Box paddingX="3u">
-            <div style={{ 
-              backgroundColor: '#fef2f2', 
-              border: '2px solid #fca5a5', 
+            <div style={{
+              backgroundColor: '#fef2f2',
+              border: '2px solid #fca5a5',
               borderRadius: '12px',
               padding: '16px',
               color: '#dc2626'
