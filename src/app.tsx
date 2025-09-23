@@ -57,6 +57,8 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('collections');
   const [collections, setCollections] = useState<Collection[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [filteredAssets, setFilteredAssets] = useState<Asset[]>([]);
+  const [slugFilter, setSlugFilter] = useState<string>('');
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +73,18 @@ export function App() {
   useEffect(() => {
     loadCollections();
   }, []);
+
+  // Filter assets based on slug filter
+  useEffect(() => {
+    if (!slugFilter.trim()) {
+      setFilteredAssets(assets);
+    } else {
+      const filtered = assets.filter(asset =>
+        asset.slug?.toLowerCase().includes(slugFilter.toLowerCase())
+      );
+      setFilteredAssets(filtered);
+    }
+  }, [assets, slugFilter]);
 
   const loadCollections = async () => {
     try {
@@ -140,6 +154,7 @@ export function App() {
 
       if (data.success && data.resources) {
         setAssets(data.resources);
+        setFilteredAssets(data.resources);
       } else {
         throw new Error(data.message || 'Failed to load assets');
       }
@@ -160,33 +175,53 @@ export function App() {
   const goBackToCollections = () => {
     setSelectedCollection(null);
     setAssets([]);
+    setFilteredAssets([]);
+    setSlugFilter('');
     setError(null);
   };
 
-  // Optimized upload functions
+  // Improved URL validation that tests actual accessibility
   const validateImageUrl = async (url: string): Promise<boolean> => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+    if (!url || !url.trim()) return false;
 
-      await fetch(url, {
+    try {
+      // First try a proper HTTP HEAD request (without no-cors)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const response = await fetch(url, {
         method: 'HEAD',
         signal: controller.signal,
-        mode: 'no-cors'
       });
 
       clearTimeout(timeoutId);
-      return true;
-    } catch {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve(true);
-        img.onerror = () => resolve(false);
-        img.crossOrigin = 'anonymous';
-        img.src = url;
-        setTimeout(() => resolve(false), 5000);
-      });
+
+      // Check if response is ok and content type is an image
+      if (response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        return contentType.startsWith('image/');
+      }
+    } catch (error) {
+      // Fallback to image loading test
+      try {
+        return await new Promise<boolean>((resolve) => {
+          const img = new Image();
+
+          img.onload = () => resolve(true);
+          img.onerror = () => resolve(false);
+
+          // Don't set crossOrigin for better compatibility
+          img.src = url;
+
+          // Shorter timeout for faster fallback
+          setTimeout(() => resolve(false), 3000);
+        });
+      } catch {
+        return false;
+      }
     }
+
+    return false;
   };
 
   const getProgressiveFallbackUrls = (asset: Asset): string[] => {
@@ -198,50 +233,52 @@ export function App() {
       asset.thumbnail
     ].filter(Boolean);
 
-    return urls.map(url => ensureHttps(convertPngToJpeg(url!)));
+    // Return original URLs first, then HTTPS versions as fallbacks
+    const originalUrls = urls.map(url => url!);
+    const httpsUrls = urls.map(url => ensureHttps(url!)).filter(url => url !== originalUrls.find(orig => orig === url));
+
+    return [...originalUrls, ...httpsUrls];
   };
 
   const ensureHttps = (url: string): string => {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       return 'https://' + url;
     }
-    return url.replace(/^http:/, 'https:');
+    // Only convert HTTP to HTTPS if it's already HTTP, don't force conversion
+    if (url.startsWith('http://')) {
+      return url.replace(/^http:/, 'https:');
+    }
+    return url;
   };
 
   const convertPngToJpeg = (url: string): string => {
-    if (!url) return url;
+    // Removed aggressive PNG to JPEG conversion as it breaks URLs
+    // Only convert Cloudinary URLs which we know support this
+    if (!url || !url.includes('cloudinary.com')) return url;
 
-    const lowerUrl = url.toLowerCase();
-    if (lowerUrl.endsWith('.png') || lowerUrl.includes('.png?') || lowerUrl.includes('.png&')) {
-      if (url.includes('cloudinary.com')) {
-        let convertedUrl = url;
-        if (url.includes('/upload/')) {
-          convertedUrl = url.replace('/upload/', '/upload/f_jpg/');
-        } else {
-          convertedUrl = url.replace(/\.png/gi, '.jpeg');
-        }
-        return convertedUrl;
-      } else {
-        let convertedUrl = url;
-        if (url.includes('?')) {
-          convertedUrl = url + '&format=jpeg';
-        } else {
-          convertedUrl = url + '?format=jpeg';
-        }
-        convertedUrl = convertedUrl.replace(/\.png/gi, '.jpg');
-        return convertedUrl;
-      }
+    if (url.includes('/upload/') && url.toLowerCase().includes('.png')) {
+      return url.replace('/upload/', '/upload/f_jpg/');
     }
     return url;
   };
 
   const uploadWithRetry = async (urls: string[], config: any, maxRetries = 3): Promise<any> => {
     let lastError: Error | null = null;
+    let validUrls: string[] = [];
 
+    // Validate all URLs first
     for (const url of urls) {
       const isValid = await validateImageUrl(url);
-      if (!isValid) continue;
+      if (isValid) {
+        validUrls.push(url);
+      }
+    }
 
+    if (validUrls.length === 0) {
+      throw new Error('No valid URLs found for upload');
+    }
+
+    for (const url of validUrls) {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           const uploadConfig = {
@@ -251,16 +288,27 @@ export function App() {
           };
 
           const result = await upload(uploadConfig);
+
+          // Validate upload result
+          if (!result || !result.ref) {
+            throw new Error('Upload succeeded but no reference returned');
+          }
+
           return result;
         } catch (error) {
           lastError = error as Error;
+
           if (attempt === maxRetries) break;
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+
+          // Exponential backoff with jitter
+          const baseDelay = Math.pow(2, attempt) * 1000;
+          const jitter = Math.random() * 1000;
+          await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
         }
       }
     }
 
-    throw lastError || new Error('All upload attempts failed');
+    throw lastError || new Error('All upload attempts failed - no valid URLs found');
   };
 
   // Helper function to normalize font size based on text case
@@ -333,6 +381,7 @@ export function App() {
       const hasDualImages = assetType === 'diff' &&
         (asset.secondary_cropped_url || asset.secondary_original_url) &&
         (asset.secondary_cropped_url?.trim() !== '' || asset.secondary_original_url?.trim() !== '');
+
 
       // Get progressive fallback URLs for primary image
       const primaryUrls = getProgressiveFallbackUrls(asset);
@@ -590,8 +639,18 @@ export function App() {
       } else {
         // Dual images - upload secondary image and create layout based on ComparisonMode
         if (secondaryUrls.length === 0) {
-          throw new Error('No secondary image URL available');
-        }
+          // Fall back to single image using the single image layout
+          const imageConfig = imageLayout.images[0];
+          imageElements = [{
+            type: "image" as const,
+            ref: primaryUploadResult.ref,
+            altText: { text: imageConfig.altText, decorative: false },
+            top: imageConfig.top,
+            left: imageConfig.left,
+            width: imageConfig.width,
+            height: imageConfig.height,
+          }];
+        } else {
 
         // Check session cache for secondary image
         const secondaryCacheKey = secondaryUrls[0];
@@ -660,6 +719,7 @@ export function App() {
         };
 
         imageElements.push(primaryElement, secondaryElement);
+        }
       }
 
       // Upload and create logo element for top right corner
@@ -899,99 +959,135 @@ export function App() {
         };
       }
 
-      // Add to design using the same pattern as reference app
-      if (features.isSupported(addElementAtPoint)) {
-        // Add all image elements (single or dual)
-        for (const [index, imageElement] of imageElements.entries()) {
+      // Helper function to add element with retry logic
+      const addElementWithRetry = async (element: any, elementName: string, maxRetries = 3) => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
-            // Add small delay between images to prevent Canva conflicts
-            if (index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 200));
+            await addElementAtPoint(element);
+            return;
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+
+            if (attempt === maxRetries) {
+              throw new Error(`Failed to add ${elementName} after ${maxRetries} attempts: ${errorMessage}`);
             }
 
-            await addElementAtPoint(imageElement);
+            // Exponential backoff: wait longer between retries
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+      };
+
+      // Add to design using the same pattern as reference app
+      if (features.isSupported(addElementAtPoint)) {
+        // Add all image elements (single or dual) with enhanced error handling
+        for (const [index, imageElement] of imageElements.entries()) {
+          try {
+            // Add delay between images to prevent Canva conflicts
+            if (index > 0) {
+              await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay
+            }
+
+            // Validate image element before adding
+            if (!imageElement.ref) {
+              throw new Error(`Invalid image reference for image ${index + 1}`);
+            }
+
+            await addElementWithRetry(imageElement, `image ${index + 1}`);
+
+            // Update progress to show successful image addition
+            setUploadProgress(prev => new Map(prev).set(asset.id, {
+              status: 'verifying',
+              progress: 50 + (index * 20),
+              message: `Added image ${index + 1}...`
+            }));
+
           } catch (err) {
-            throw new Error(`Failed to add image ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // If this is a dual image and the first image succeeded, continue with single image
+            if (index === 1 && imageElements.length === 2) {
+              setUploadProgress(prev => new Map(prev).set(asset.id, {
+                status: 'verifying',
+                progress: 70,
+                message: 'Using single image layout...'
+              }));
+              break; // Continue with rest of the elements
+            } else {
+              throw err;
+            }
           }
         }
 
         try {
-          await addElementAtPoint(footerRectangleElement);
+          await addElementWithRetry(footerRectangleElement, 'footer rectangle');
         } catch (err) {
-          throw new Error(`Failed to add footer rectangle: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          // Continue without footer rectangle if it fails
         }
 
         try {
-          await addElementAtPoint(logoElement);
+          await addElementWithRetry(logoElement, 'PricingSaas logo');
         } catch (err) {
-          throw new Error(`Failed to add PricingSaas logo: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          // Continue without logo if it fails
         }
 
         // Add company logo at bottom (if available)
         if (companyLogoElement) {
           try {
-            await addElementAtPoint(companyLogoElement);
+            await addElementWithRetry(companyLogoElement, 'company logo');
           } catch (err) {
-            console.error('ERROR: Failed to add company logo:', err);
-            throw new Error(`Failed to add company logo: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // Continue without company logo if it fails
           }
         }
 
         // Add company slug text (to the right of company logo)
         if (companySlugElement) {
           try {
-            await addElementAtPoint(companySlugElement);
+            await addElementWithRetry(companySlugElement, 'company slug text');
           } catch (err) {
-            console.error('ERROR: Failed to add company slug text:', err);
-            throw new Error(`Failed to add company slug text: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // Continue without company slug text if it fails
           }
         }
 
         // Add "curated by" text
         try {
-          await addElementAtPoint(curatedByElement);
+          await addElementWithRetry(curatedByElement, 'curated by text');
         } catch (err) {
-          console.error('ERROR: Failed to add curated by text:', err);
-          throw new Error(`Failed to add curated by text: ${err instanceof Error ? err.message : 'Unknown error'}`);
+          // Continue without curated by text if it fails
         }
 
         // Add header text element (if available)
         if (headerElement) {
           try {
-            await addElementAtPoint(headerElement);
+            await addElementWithRetry(headerElement, 'header text');
           } catch (err) {
-            console.error('ERROR: Failed to add header text:', err);
-            throw new Error(`Failed to add header text: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // Continue without header text if it fails
           }
         }
 
         // Add subheader text element (if available)
         if (subheaderElement) {
           try {
-            await addElementAtPoint(subheaderElement);
+            await addElementWithRetry(subheaderElement, 'subheader text');
           } catch (err) {
-            console.error('ERROR: Failed to add subheader text:', err);
-            throw new Error(`Failed to add subheader text: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // Continue without subheader text if it fails
           }
         }
 
         // Add date pill rectangles (if available)
         for (const [index, rectangle] of datePillRectangleElements.entries()) {
           try {
-            await addElementAtPoint(rectangle);
+            await addElementWithRetry(rectangle, `date pill rectangle ${index + 1}`);
           } catch (err) {
-            console.error(`ERROR: Failed to add date pill rectangle ${index + 1}:`, err);
-            throw new Error(`Failed to add date pill rectangle ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // Continue without this date pill rectangle if it fails
           }
         }
 
         // Add date pill texts (if available)
         for (const [index, pill] of datePillElements.entries()) {
           try {
-            await addElementAtPoint(pill);
+            await addElementWithRetry(pill, `date pill text ${index + 1}`);
           } catch (err) {
-            console.error(`ERROR: Failed to add date pill text ${index + 1}:`, err);
-            throw new Error(`Failed to add date pill text ${index + 1}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            // Continue without this date pill text if it fails
           }
         }
 
@@ -1117,13 +1213,43 @@ export function App() {
             /* Asset grid view */
             assets.length > 0 ? (
               <Box paddingX="4u" paddingY="3u">
+                {/* Slug Filter Bar */}
+                <Box paddingBottom="3u">
+                  <div style={{ marginBottom: '8px' }}>
+                    <Text size="small" tone="secondary">Filter by slug</Text>
+                  </div>
+                  <div style={{ maxWidth: '300px' }}>
+                    <input
+                      type="text"
+                      placeholder="Type to filter assets by slug..."
+                      value={slugFilter}
+                      onChange={(e) => setSlugFilter(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        transition: 'border-color 0.2s ease',
+                      }}
+                    />
+                  </div>
+                  {slugFilter && (
+                    <div style={{ marginTop: '8px' }}>
+                      <Text size="small" tone="tertiary">
+                        Showing {filteredAssets.length} of {assets.length} assets
+                      </Text>
+                    </div>
+                  )}
+                </Box>
                 <div style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
                   gap: '24px',
                   padding: '16px 0'
                 }}>
-                  {assets.map((asset) => {
+                  {filteredAssets.map((asset) => {
                     const progress = uploadProgress.get(asset.id);
                     const isUploading = progress && progress.status !== 'completed';
 
@@ -1237,6 +1363,20 @@ export function App() {
                         }}>
                           {asset.name}
                         </div>
+                        {asset.slug && (
+                          <div style={{
+                            marginBottom: '4px',
+                            padding: '4px 8px',
+                            backgroundColor: '#f3f4f6',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontFamily: 'monospace',
+                            color: '#6b7280',
+                            display: 'inline-block'
+                          }}>
+                            {asset.slug}
+                          </div>
+                        )}
                         <Text size="small" tone="secondary">
                           {progress ? progress.message : 'Ready to add to your design'}
                         </Text>
@@ -1249,7 +1389,10 @@ export function App() {
             ) : (
               <Box paddingX="3u" paddingY="6u">
                 <Text tone="secondary">
-                  No assets found in this collection.
+                  {slugFilter
+                    ? `No assets found matching "${slugFilter}" in this collection.`
+                    : "No assets found in this collection."
+                  }
                 </Text>
               </Box>
             )

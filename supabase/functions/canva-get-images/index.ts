@@ -45,7 +45,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { query, continuation, limit = 20, sortBy, filters, containerIds, getAllAssets } = await req.json() as FindResourcesRequest;
+    const { query, continuation, limit = 1000, sortBy, filters, containerIds, getAllAssets } = await req.json() as FindResourcesRequest;
     
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
@@ -203,14 +203,17 @@ serve(async (req: Request) => {
         const assetType = String(asset.type || 'simple');
         const comparisonMode = String(asset.comparison_mode || 'single');
         
+        const primarySlug = String((asset.pages as any)?.companies?.slug || '') +
+                        (String((asset.pages as any)?.subslug || '') ? '.' + String((asset.pages as any)?.subslug || '') : '');
+
         return {
           id: String(asset.id),
           name: String(asset.title || asset.filename || '') || `Asset ${index + 1}`,
+          slug: primarySlug,
           url: assetUrl,
           thumbnail: thumbnailUrl,
           company_logo_url: String((asset.pages as any)?.companies?.logo_url || ''),
-          company_slug: String((asset.pages as any)?.companies?.slug || '') +
-                       (String((asset.pages as any)?.subslug || '') ? '.' + String((asset.pages as any)?.subslug || '') : ''),
+          company_slug: primarySlug,
           header: String(asset.header || ''),
           subheader: String(asset.subheader || ''),
           version: String(asset.version || ''),
