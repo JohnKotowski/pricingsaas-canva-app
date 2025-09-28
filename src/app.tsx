@@ -40,6 +40,7 @@ interface Collection {
 }
 
 type TabType = 'collections' | 'settings';
+type SizePreset = '1:1' | '16:9' | 'custom';
 
 interface UploadCache {
   ref: any;
@@ -69,10 +70,35 @@ export function App() {
   const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress>>(new Map());
   const abortController = useRef<AbortController | null>(null);
 
+  // Size selection state
+  const [showSizeSelection, setShowSizeSelection] = useState(true);
+  const [selectedPreset, setSelectedPreset] = useState<SizePreset>('1:1');
+  const [customWidth, setCustomWidth] = useState(1080);
+  const [customHeight, setCustomHeight] = useState(1080);
+
   // Load collections on app start
   useEffect(() => {
     loadCollections();
   }, []);
+
+  // Handle size selection
+  const handleSizeSelection = () => {
+    switch (selectedPreset) {
+      case '1:1':
+        setDesignWidth(1080);
+        setDesignHeight(1080);
+        break;
+      case '16:9':
+        setDesignWidth(1920);
+        setDesignHeight(1080);
+        break;
+      case 'custom':
+        setDesignWidth(customWidth);
+        setDesignHeight(customHeight);
+        break;
+    }
+    setShowSizeSelection(false);
+  };
 
   // Filter assets based on slug filter
   useEffect(() => {
@@ -233,11 +259,11 @@ export function App() {
       asset.thumbnail
     ].filter(Boolean);
 
-    // Return original URLs first, then HTTPS versions as fallbacks
-    const originalUrls = urls.map(url => url!);
-    const httpsUrls = urls.map(url => ensureHttps(url!)).filter(url => url !== originalUrls.find(orig => orig === url));
+    // Apply Cloudinary format conversion and HTTPS to all URLs
+    const processedUrls = urls.map(url => ensureHttps(convertCloudinaryFormat(url!)));
 
-    return [...originalUrls, ...httpsUrls];
+    // Return processed URLs with unique entries only
+    return [...new Set(processedUrls)];
   };
 
   const ensureHttps = (url: string): string => {
@@ -251,20 +277,23 @@ export function App() {
     return url;
   };
 
-  const convertPngToJpeg = (url: string): string => {
-    // Removed aggressive PNG to JPEG conversion as it breaks URLs
-    // Only convert Cloudinary URLs which we know support this
+  const convertCloudinaryFormat = (url: string): string => {
     if (!url || !url.includes('cloudinary.com')) return url;
 
-    if (url.includes('/upload/') && url.toLowerCase().includes('.png')) {
-      return url.replace('/upload/', '/upload/f_jpg/');
+    // Convert JPG to PNG for Cloudinary URLs (better Canva compatibility)
+    if (url.toLowerCase().endsWith('.jpg') || url.toLowerCase().endsWith('.jpeg')) {
+      const convertedUrl = url.replace(/\.(jpg|jpeg)$/i, '.png');
+      return convertedUrl;
     }
+
+    // Keep PNG as is for Cloudinary
     return url;
   };
 
   const uploadWithRetry = async (urls: string[], config: any, maxRetries = 3): Promise<any> => {
     let lastError: Error | null = null;
     let validUrls: string[] = [];
+
 
     // Validate all URLs first
     for (const url of urls) {
@@ -275,7 +304,7 @@ export function App() {
     }
 
     if (validUrls.length === 0) {
-      throw new Error('No valid URLs found for upload');
+      throw new Error(`No valid URLs found for upload. Original URLs: ${urls.join(', ')}`);
     }
 
     for (const url of validUrls) {
@@ -308,7 +337,8 @@ export function App() {
       }
     }
 
-    throw lastError || new Error('All upload attempts failed - no valid URLs found');
+    const finalError = lastError || new Error('All upload attempts failed - no valid URLs found');
+    throw finalError;
   };
 
   // Helper function to normalize font size based on text case
@@ -357,6 +387,150 @@ export function App() {
       .join(' ');
   };
 
+  const getThumbnailUrl = (asset: Asset): string | null => {
+    // Try different thumbnail sources in order of preference
+    const sources = [
+      asset.thumbnail,
+      asset.url,
+      asset.primary_cropped_url,
+      asset.primary_original_url,
+      asset.primary_markup_url
+    ].filter(Boolean);
+
+    for (const url of sources) {
+      if (url && url.trim() !== '') {
+        return convertCloudinaryFormat(ensureHttps(url));
+      }
+    }
+
+    return null;
+  };
+
+  const insertSingleImage = async (asset: Asset, imageType: 'primary' | 'secondary') => {
+    try {
+      setError(null);
+
+      // Set upload progress
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-${imageType}`, {
+        status: 'uploading',
+        progress: 10,
+        message: `Preparing ${imageType} image upload...`
+      }));
+
+      const assetType = asset.asset_type || asset.type || 'simple';
+
+      // Get the appropriate URLs based on image type
+      let urls: string[];
+      if (imageType === 'primary') {
+        urls = getProgressiveFallbackUrls(asset);
+      } else {
+        urls = [
+          asset.secondary_cropped_url,
+          asset.secondary_original_url,
+          asset.secondary_markup_url
+        ].filter(Boolean).map(url => ensureHttps(convertCloudinaryFormat(url!)));
+      }
+
+      if (urls.length === 0) {
+        throw new Error(`No ${imageType} image URL available`);
+      }
+
+      // Upload the image
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-${imageType}`, {
+        status: 'uploading',
+        progress: 30,
+        message: `Uploading ${imageType} image...`
+      }));
+
+      // Determine MIME type - if we converted a Cloudinary JPG to PNG, use PNG MIME type
+      const mimeType = urls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+      const uploadResult = await uploadWithRetry(urls, {
+        type: "image",
+        mimeType: mimeType,
+        aiDisclosure: "none",
+      });
+
+      // Calculate image layout for single centered image
+      const headerSpace = 110;
+      const footerSpace = designWidth === 1920 && designHeight === 1080 ? Math.round(footerHeight * 1.25) : footerHeight;
+      const versionLabelSpace = 40;
+      const padding = 20;
+
+      const imageAreaTop = headerSpace;
+      const imageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
+      const imageAreaWidth = designWidth - (padding * 2);
+      const imageAreaLeft = padding;
+
+      // Calculate centered single image
+      const aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
+      const imageWidth = Math.min(imageAreaWidth, Math.round(imageAreaHeight * aspectRatio));
+      const imageHeight = Math.round(imageWidth / aspectRatio);
+      const imageLeft = imageAreaLeft + Math.round((imageAreaWidth - imageWidth) / 2);
+      const imageTop = imageAreaTop + Math.round((imageAreaHeight - imageHeight) / 2);
+
+      // Create single image element
+      const imageElement = {
+        type: "image" as const,
+        ref: uploadResult.ref,
+        altText: { text: `${asset.name} - ${imageType}`, decorative: false },
+        top: imageTop,
+        left: imageLeft,
+        width: imageWidth,
+        height: imageHeight,
+      };
+
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-${imageType}`, {
+        status: 'verifying',
+        progress: 80,
+        message: `Inserting ${imageType} image...`
+      }));
+
+      // Insert the image
+      if (features.isSupported(addElementAtPoint)) {
+        await addElementAtPoint(imageElement);
+      } else if (features.isSupported(addElementAtCursor)) {
+        await addElementAtCursor(imageElement);
+      } else {
+        throw new Error("Image insertion not supported");
+      }
+
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-${imageType}`, {
+        status: 'completed',
+        progress: 100,
+        message: `${imageType} image inserted successfully!`
+      }));
+
+      // Clear progress after 2 seconds
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const updated = new Map(prev);
+          updated.delete(`${asset.id}-${imageType}`);
+          return updated;
+        });
+      }, 2000);
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : `Failed to insert ${imageType} image`;
+      setError(errorMessage);
+      console.error(`Error inserting ${imageType} image:`, err);
+
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-${imageType}`, {
+        status: 'failed',
+        progress: 0,
+        message: errorMessage
+      }));
+
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const updated = new Map(prev);
+          updated.delete(`${asset.id}-${imageType}`);
+          return updated;
+        });
+      }, 5000);
+    }
+  };
+
   const insertAsset = async (asset: Asset) => {
     try {
       setError(null);
@@ -391,7 +565,8 @@ export function App() {
         asset.secondary_cropped_url,
         asset.secondary_original_url,
         asset.secondary_markup_url
-      ].filter(Boolean).map(url => ensureHttps(convertPngToJpeg(url!))) : [];
+      ].filter(Boolean).map(url => ensureHttps(convertCloudinaryFormat(url!))) : [];
+
 
       if (primaryUrls.length === 0) {
         throw new Error('No primary image URL available');
@@ -424,9 +599,14 @@ export function App() {
         }
       }
 
+      // Calculate adjusted footer height first
+      const adjustedFooterHeight = designWidth === 1920 && designHeight === 1080
+        ? Math.round(footerHeight * 1.25)
+        : footerHeight;
+
       // Calculate dynamic image area based on settings
       const headerSpace = 110; // Increased space for header and subheader (10% more from 100px)
-      const footerSpace = footerHeight; // Use footer height from settings
+      const footerSpace = adjustedFooterHeight; // Use adjusted footer height
       const versionLabelSpace = 40; // Space for version labels under images
       const padding = 20; // General padding
 
@@ -577,28 +757,30 @@ export function App() {
         }
       }
 
-      // Check session cache first
+      // Phase 1: Upload all images first
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'uploading',
+        progress: 10,
+        message: 'Starting image uploads...'
+      }));
+
+      // Upload primary image
       const primaryCacheKey = primaryUrls[0];
       const cachedPrimary = uploadCache.get(primaryCacheKey);
       let primaryUploadResult: any;
 
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'uploading',
+        progress: 20,
+        message: 'Uploading primary image...'
+      }));
+
       if (cachedPrimary && Date.now() - cachedPrimary.timestamp < 300000) {
         // Use cached result if less than 5 minutes old
         primaryUploadResult = { ref: cachedPrimary.ref };
-        setUploadProgress(prev => new Map(prev).set(asset.id, {
-          status: 'completed',
-          progress: 50,
-          message: 'Using cached primary image...'
-        }));
       } else {
-        // Upload primary image with retry logic
-        setUploadProgress(prev => new Map(prev).set(asset.id, {
-          status: 'uploading',
-          progress: 10,
-          message: 'Uploading primary image...'
-        }));
-
-        const mimeType = primaryUrls[0].toLowerCase().includes('.png') ? 'image/png' : 'image/jpeg';
+        // Determine MIME type - if we converted a Cloudinary JPG to PNG, use PNG MIME type
+        const mimeType = primaryUrls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
 
         primaryUploadResult = await uploadWithRetry(primaryUrls, {
           type: "image",
@@ -612,13 +794,13 @@ export function App() {
           timestamp: Date.now(),
           url: primaryUrls[0]
         }));
-
-        setUploadProgress(prev => new Map(prev).set(asset.id, {
-          status: 'verifying',
-          progress: 40,
-          message: 'Verifying primary image...'
-        }));
       }
+
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'uploading',
+        progress: 50,
+        message: 'Primary image uploaded successfully!'
+      }));
 
       // Create image elements using the calculated layout
       let imageElements: any[] = [];
@@ -651,48 +833,59 @@ export function App() {
             height: imageConfig.height,
           }];
         } else {
-
-        // Check session cache for secondary image
-        const secondaryCacheKey = secondaryUrls[0];
-        const cachedSecondary = uploadCache.get(secondaryCacheKey);
-        let secondaryUploadResult: any;
-
-        if (cachedSecondary && Date.now() - cachedSecondary.timestamp < 300000) {
-          // Use cached result
-          secondaryUploadResult = { ref: cachedSecondary.ref };
-          setUploadProgress(prev => new Map(prev).set(asset.id, {
-            status: 'completed',
-            progress: 80,
-            message: 'Using cached secondary image...'
-          }));
-        } else {
+          // Upload secondary image
           setUploadProgress(prev => new Map(prev).set(asset.id, {
             status: 'uploading',
             progress: 60,
             message: 'Uploading secondary image...'
           }));
 
-          const mimeType = secondaryUrls[0].toLowerCase().includes('.png') ? 'image/png' : 'image/jpeg';
+          const secondaryCacheKey = secondaryUrls[0];
+          const cachedSecondary = uploadCache.get(secondaryCacheKey);
+          let secondaryUploadResult: any;
 
-          secondaryUploadResult = await uploadWithRetry(secondaryUrls, {
-            type: "image",
-            mimeType: mimeType,
-            aiDisclosure: "none",
-          });
+          if (cachedSecondary && Date.now() - cachedSecondary.timestamp < 300000) {
+            // Use cached result
+            secondaryUploadResult = { ref: cachedSecondary.ref };
+          } else {
+            try {
+              // Determine MIME type - if we converted a Cloudinary JPG to PNG, use PNG MIME type
+              const mimeType = secondaryUrls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
 
-          // Cache the result
-          setUploadCache(prev => new Map(prev).set(secondaryCacheKey, {
-            ref: secondaryUploadResult.ref,
-            timestamp: Date.now(),
-            url: secondaryUrls[0]
-          }));
+              secondaryUploadResult = await uploadWithRetry(secondaryUrls, {
+                type: "image",
+                mimeType: mimeType,
+                aiDisclosure: "none",
+              });
+
+              if (!secondaryUploadResult || !secondaryUploadResult.ref) {
+                throw new Error('Secondary image upload failed - no reference returned');
+              }
+
+              // Cache the result
+              setUploadCache(prev => new Map(prev).set(secondaryCacheKey, {
+                ref: secondaryUploadResult.ref,
+                timestamp: Date.now(),
+                url: secondaryUrls[0]
+              }));
+            } catch (secondaryError) {
+              console.error('Secondary image upload failed:', secondaryError);
+
+              setUploadProgress(prev => new Map(prev).set(asset.id, {
+                status: 'failed',
+                progress: 0,
+                message: 'Secondary image upload failed'
+              }));
+
+              throw new Error(`Secondary image upload failed: ${secondaryError}`);
+            }
+          }
 
           setUploadProgress(prev => new Map(prev).set(asset.id, {
-            status: 'verifying',
-            progress: 90,
-            message: 'Verifying secondary image...'
+            status: 'uploading',
+            progress: 80,
+            message: 'Secondary image uploaded successfully!'
           }));
-        }
 
         // Create dual image elements using the calculated layout
         const primaryConfig = imageLayout.images[0];
@@ -722,6 +915,13 @@ export function App() {
         }
       }
 
+      // Phase 2: All uploads complete, now start insertion
+      setUploadProgress(prev => new Map(prev).set(asset.id, {
+        status: 'verifying',
+        progress: 85,
+        message: 'All images uploaded! Starting insertion...'
+      }));
+
       // Upload and create logo element for top right corner
       const logoUrl = "https://res.cloudinary.com/dd6dkaan9/image/upload/v1756551917/WordmarkWhite_tv0jl9.png";
       const logoUploadResult = await upload({
@@ -738,14 +938,14 @@ export function App() {
       });
 
       // Create footer rectangle element - responsive to design width
-      const footerRectangleHeight = footerHeight; // Use the calculated footer space
+      const footerRectangleHeight = adjustedFooterHeight;
       const footerRectangleTop = designHeight - footerRectangleHeight;
 
-      // Position PricingSaas logo - responsive to design dimensions
-      const pricingSaasLogoWidth = Math.max(80, Math.min(146, designWidth * 0.135)); // 146px at 1080px width
-      const pricingSaasLogoHeight = Math.max(16, Math.min(29, designWidth * 0.027)); // 29px at 1080px width
-      // For 1080px width, use original positioning but adjusted, otherwise responsive
-      const pricingSaasLogoLeft = designWidth === 1080 ? 880 : designWidth - pricingSaasLogoWidth - 40; // Moved left from 920 to 880, and increased margin from 20 to 40
+      // Position PricingSaas logo - responsive to design dimensions and better spacing for 16:9, 50% bigger
+      const pricingSaasLogoWidth = Math.max(120, Math.min(219, designWidth * 0.203)); // 219px at 1080px width (50% bigger)
+      const pricingSaasLogoHeight = Math.max(24, Math.min(44, designWidth * 0.041)); // 44px at 1080px width (50% bigger)
+      // Better spacing for 16:9 and center elements properly
+      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - 40; // Right edge with margin
       const pricingSaasLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (pricingSaasLogoHeight / 2); // Center vertically in footer
 
       const logoElement = {
@@ -781,7 +981,7 @@ export function App() {
       };
 
       // Create company logo element at bottom (if available)
-      let companyLogoElement = null;
+      let companyLogoElement: any = null;
       if (asset.company_logo_url && asset.company_logo_url.trim()) {
         try {
           // Ensure HTTPS URL for Canva upload
@@ -798,9 +998,9 @@ export function App() {
             aiDisclosure: "none",
           });
 
-          // Position company logo - responsive to design dimensions
-          const logoSize = Math.max(20, Math.min(39, designWidth * 0.036)); // 39px at 1080px width
-          const companyLogoLeft = 20;
+          // Position company logo - responsive to design dimensions, centered vertically, 50% bigger
+          const logoSize = Math.max(30, Math.min(58, designWidth * 0.054)); // 58px at 1080px width (50% bigger)
+          const companyLogoLeft = 40; // More margin for better spacing
           const companyLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (logoSize / 2);
 
           companyLogoElement = {
@@ -818,7 +1018,7 @@ export function App() {
       }
 
       // Create header text element - responsive to design width
-      let headerElement = null;
+      let headerElement: any = null;
       if (asset.header && asset.header.trim()) {
         const headerPadding = 20;
         const headerLeft = headerPadding;
@@ -842,7 +1042,7 @@ export function App() {
       }
 
       // Create subheader text element - responsive to design width
-      let subheaderElement = null;
+      let subheaderElement: any = null;
       if (asset.subheader && asset.subheader.trim()) {
         const subheaderPadding = 20;
         const subheaderLeft = subheaderPadding;
@@ -917,11 +1117,11 @@ export function App() {
         });
       }
 
-      // Create "curated by" text element - responsive positioning
-      const curatedByFontSize = Math.max(10, Math.min(14, designWidth * 0.013)); // 14px at 1080px width
-      const curatedByWidth = 100;
-      // For 1080px width, use original positioning, otherwise responsive
-      const curatedByLeft = designWidth === 1080 ? 754 : designWidth - curatedByWidth - 20;
+      // Create "curated by" text element - responsive positioning, moved 100px left from logo, same size as slug
+      const curatedByFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width (same as slug)
+      const curatedByWidth = 150; // Increased width to prevent text wrapping
+      // Position 100px to the left of the logo to prevent overlap
+      const curatedByLeft = pricingSaasLogoLeft - curatedByWidth - 20; // 20px gap from logo
       const curatedByTop = footerRectangleTop + (footerRectangleHeight / 2) - (curatedByFontSize / 2);
 
       const curatedByElement = {
@@ -936,17 +1136,17 @@ export function App() {
         textAlign: "end" as const,
       };
 
-      // Create company slug text element - responsive positioning
-      let companySlugElement = null;
-      if (asset.company_slug && asset.company_slug.trim()) {
-        const formattedSlug = formatCompanySlug(asset.company_slug);
-        const slugFontSize = Math.max(10, Math.min(14, designWidth * 0.013)); // 14px at 1080px width
-        const logoSize = Math.max(20, Math.min(39, designWidth * 0.036));
-        const slugLeft = 20 + logoSize + 10; // After logo + 10px gap
-        const slugWidth = designWidth - slugLeft - 120 - 20; // Leave space for "curated by" text
+      // Create asset slug text element - responsive positioning, better spacing
+      let assetSlugElement: any = null;
+      if (asset.slug && asset.slug.trim()) {
+        const formattedSlug = formatCompanySlug(asset.slug);
+        const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width (25% bigger than previous)
+        const logoSize = Math.max(30, Math.min(58, designWidth * 0.054)); // Match the updated logo size
+        const slugLeft = 40 + logoSize + 15; // After logo + better gap
+        const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
         const slugTop = footerRectangleTop + (footerRectangleHeight / 2) - (slugFontSize / 2);
 
-        companySlugElement = {
+        assetSlugElement = {
           type: "text" as const,
           children: [formattedSlug],
           top: slugTop,
@@ -999,8 +1199,8 @@ export function App() {
             // Update progress to show successful image addition
             setUploadProgress(prev => new Map(prev).set(asset.id, {
               status: 'verifying',
-              progress: 50 + (index * 20),
-              message: `Added image ${index + 1}...`
+              progress: 88 + (index * 4),
+              message: `Inserted image ${index + 1} into design...`
             }));
 
           } catch (err) {
@@ -1039,12 +1239,12 @@ export function App() {
           }
         }
 
-        // Add company slug text (to the right of company logo)
-        if (companySlugElement) {
+        // Add asset slug text (to the right of company logo)
+        if (assetSlugElement) {
           try {
-            await addElementWithRetry(companySlugElement, 'company slug text');
+            await addElementWithRetry(assetSlugElement, 'asset slug text');
           } catch (err) {
-            // Continue without company slug text if it fails
+            // Continue without asset slug text if it fails
           }
         }
 
@@ -1096,13 +1296,13 @@ export function App() {
         for (const imageElement of imageElements) {
           await addElementAtCursor(imageElement);
         }
-        await addElementAtCursor(footerRectangleElement);
+        // Note: footerRectangleElement (shape) not supported by addElementAtCursor
         await addElementAtCursor(logoElement);
         if (companyLogoElement) {
           await addElementAtCursor(companyLogoElement);
         }
-        if (companySlugElement) {
-          await addElementAtCursor(companySlugElement);
+        if (assetSlugElement) {
+          await addElementAtCursor(assetSlugElement);
         }
         await addElementAtCursor(curatedByElement);
         if (headerElement) {
@@ -1122,11 +1322,11 @@ export function App() {
         throw new Error("Image insertion not supported");
       }
 
-      // Mark upload as completed
+      // Mark insertion as completed
       setUploadProgress(prev => new Map(prev).set(asset.id, {
         status: 'completed',
         progress: 100,
-        message: 'Asset inserted successfully!'
+        message: hasDualImages ? 'Dual images inserted successfully!' : 'Image inserted successfully!'
       }));
 
       // Clear progress after 2 seconds
@@ -1167,6 +1367,142 @@ export function App() {
     } else {
       return name.substring(0, maxWidth - 3) + '...';
     }
+  };
+
+  const renderSizeSelection = () => {
+    return (
+      <div className={styles.rootWrapper}>
+        <Box paddingX="3u" paddingY="4u">
+          <Rows spacing="4u">
+            {/* Header */}
+            <Box>
+              <Text size="large">
+                Choose Design Size
+              </Text>
+              <Text size="medium" tone="secondary">
+                Select the dimensions for your design
+              </Text>
+            </Box>
+
+            {/* Size preset options */}
+            <Rows spacing="3u">
+              {/* 1:1 Square option */}
+              <div
+                onClick={() => setSelectedPreset('1:1')}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  border: selectedPreset === '1:1' ? '2px solid #6366f1' : '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  backgroundColor: selectedPreset === '1:1' ? '#f0f9ff' : '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <Rows spacing="1u">
+                  <Text size="medium">1:1 Square</Text>
+                  <Text size="small" tone="secondary">1080 × 1080 pixels</Text>
+                  <Text size="small" tone="tertiary">Perfect for social media posts</Text>
+                </Rows>
+              </div>
+
+              {/* 16:9 Landscape option */}
+              <div
+                onClick={() => setSelectedPreset('16:9')}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  border: selectedPreset === '16:9' ? '2px solid #6366f1' : '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  backgroundColor: selectedPreset === '16:9' ? '#f0f9ff' : '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <Rows spacing="1u">
+                  <Text size="medium">16:9 Landscape</Text>
+                  <Text size="small" tone="secondary">1920 × 1080 pixels</Text>
+                  <Text size="small" tone="tertiary">Great for presentations and headers</Text>
+                </Rows>
+              </div>
+
+              {/* Custom option */}
+              <div
+                onClick={() => setSelectedPreset('custom')}
+                style={{
+                  width: '100%',
+                  padding: '16px',
+                  border: selectedPreset === 'custom' ? '2px solid #6366f1' : '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  backgroundColor: selectedPreset === 'custom' ? '#f0f9ff' : '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <Rows spacing="1u">
+                  <Text size="medium">Custom Size</Text>
+                  <Text size="small" tone="secondary">Enter your own dimensions</Text>
+                </Rows>
+              </div>
+
+              {/* Custom size inputs */}
+              {selectedPreset === 'custom' && (
+                <Box paddingX="2u">
+                  <Rows spacing="2u">
+                    <Box>
+                      <div style={{ marginBottom: '4px' }}>
+                        <Text size="small" tone="secondary">Width (px)</Text>
+                      </div>
+                      <input
+                        type="number"
+                        value={customWidth}
+                        onChange={(e) => setCustomWidth(Number(e.target.value) || 1080)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                        }}
+                        min="100"
+                        max="3000"
+                      />
+                    </Box>
+                    <Box>
+                      <div style={{ marginBottom: '4px' }}>
+                        <Text size="small" tone="secondary">Height (px)</Text>
+                      </div>
+                      <input
+                        type="number"
+                        value={customHeight}
+                        onChange={(e) => setCustomHeight(Number(e.target.value) || 1080)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                        }}
+                        min="100"
+                        max="3000"
+                      />
+                    </Box>
+                  </Rows>
+                </Box>
+              )}
+            </Rows>
+
+            {/* Confirm button */}
+            <Button
+              variant="primary"
+              onClick={handleSizeSelection}
+            >
+              Continue with Selected Size
+            </Button>
+          </Rows>
+        </Box>
+      </div>
+    );
   };
 
   const renderTabContent = () => {
@@ -1273,16 +1609,29 @@ export function App() {
                         style={{
                           width: '100%',
                           height: '200px',
-                          backgroundImage: (asset.url || asset.thumbnail) ? `url(${asset.url || asset.thumbnail})` : 'none',
+                          backgroundImage: getThumbnailUrl(asset) ? `url(${getThumbnailUrl(asset)})` : 'none',
                           backgroundSize: 'cover',
                           backgroundPosition: 'center',
-                          backgroundColor: (asset.url || asset.thumbnail) ? 'transparent' : '#f8fafc',
+                          backgroundColor: getThumbnailUrl(asset) ? 'transparent' : '#f8fafc',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           position: 'relative'
                         }}
+                        onMouseEnter={(e) => {
+                          const overlay = e.currentTarget.querySelector('.hover-overlay') as HTMLElement;
+                          if (overlay) overlay.style.opacity = '1';
+                        }}
+                        onMouseLeave={(e) => {
+                          const overlay = e.currentTarget.querySelector('.hover-overlay') as HTMLElement;
+                          if (overlay) overlay.style.opacity = '0';
+                        }}
                       >
+                        {!getThumbnailUrl(asset) && !progress && (
+                          <Text size="small" tone="tertiary">
+                            No Preview Available
+                          </Text>
+                        )}
                         {/* Upload progress overlay */}
                         {progress && (
                           <div style={{
@@ -1325,29 +1674,27 @@ export function App() {
                             )}
                           </div>
                         )}
-                        {!(asset.url || asset.thumbnail) && !progress && (
-                          <Text size="small" tone="tertiary">
-                            No Preview Available
-                          </Text>
-                        )}
                         {/* Hover overlay */}
                         {!progress && (
-                          <div style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            backgroundColor: 'rgba(0, 0, 0, 0.4)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            opacity: 0,
-                            transition: 'opacity 0.2s ease',
-                            color: 'white',
-                            fontSize: '14px',
-                            fontWeight: '500'
-                          }}>
+                          <div
+                            className="hover-overlay"
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              opacity: 0,
+                              transition: 'opacity 0.2s ease',
+                              color: 'white',
+                              fontSize: '14px',
+                              fontWeight: '500'
+                            }}
+                          >
                             Click to Insert
                           </div>
                         )}
@@ -1377,8 +1724,10 @@ export function App() {
                             {asset.slug}
                           </div>
                         )}
+
+
                         <Text size="small" tone="secondary">
-                          {progress ? progress.message : 'Ready to add to your design'}
+                          {progress ? progress.message : 'Click thumbnail to insert'}
                         </Text>
                       </div>
                     </div>
@@ -1402,9 +1751,8 @@ export function App() {
               <Box paddingX="3u">
                 <Rows spacing="2u">
                   {collections.map((collection) => (
-                    <Button
+                    <div
                       key={collection.id}
-                      variant="tertiary"
                       onClick={() => selectCollection(collection)}
                       style={{
                         width: '100%',
@@ -1415,6 +1763,8 @@ export function App() {
                         textAlign: 'left',
                         transition: 'all 0.2s ease',
                         justifyContent: 'flex-start',
+                        cursor: 'pointer',
+                        backgroundColor: '#ffffff',
                       }}
                     >
                       <span style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
@@ -1434,7 +1784,7 @@ export function App() {
                           )}
                         </span>
                       </span>
-                    </Button>
+                    </div>
                   ))}
                 </Rows>
               </Box>
@@ -1532,6 +1882,11 @@ export function App() {
     return null;
   };
 
+  // Show size selection first, then main app
+  if (showSizeSelection) {
+    return renderSizeSelection();
+  }
+
   return (
     <div className={styles.rootWrapper}>
       <Rows spacing="2u">
@@ -1551,6 +1906,28 @@ export function App() {
               Settings
             </Button>
           </Grid>
+        </Box>
+
+        {/* Current size indicator */}
+        <Box paddingX="3u">
+          <div style={{
+            backgroundColor: '#f0f9ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '6px',
+            padding: '8px 12px',
+            fontSize: '14px',
+            color: '#1e40af'
+          }}>
+            Current size: {designWidth} × {designHeight} px
+            <span style={{ marginLeft: '8px' }}>
+              <Button
+                variant="tertiary"
+                onClick={() => setShowSizeSelection(true)}
+              >
+                Change Size
+              </Button>
+            </span>
+          </div>
         </Box>
 
         {/* Error display */}
