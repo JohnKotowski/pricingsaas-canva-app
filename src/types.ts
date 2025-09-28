@@ -11,7 +11,7 @@ export interface Asset {
   subheader?: string;
   version?: string;
   secondary_version?: string;
-  crop_aspect_ratio?: string;
+  // Removed crop_aspect_ratio - marked as DO NOT USE in schema
   primary_cropped_url?: string;
   primary_original_url?: string;
   secondary_cropped_url?: string;

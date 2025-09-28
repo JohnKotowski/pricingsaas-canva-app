@@ -63,13 +63,12 @@ serve(async (req: Request) => {
         .from('app_assets')
         .select(`
           id,
-          title,
-          description,
-          primary_image,
-          secondary_image,
-          cropped_image_url,
-          original_image_url,
-          canva_asset_id,
+          slug,
+          header,
+          subheader,
+          version,
+          primary_cropped_url,
+          primary_original_url,
           collection_id,
           app_collections!inner(name)
         `)
@@ -84,9 +83,9 @@ serve(async (req: Request) => {
 
       const formattedAssets = allAssets?.map((asset: any) => ({
         id: String(asset.id),
-        name: String(asset.title || '') || 'Untitled Asset',
-        thumbnail: String(asset.cropped_image_url || asset.primary_image || asset.original_image_url || ''),
-        url: String(asset.primary_image || asset.cropped_image_url || ''),
+        name: String(asset.slug || '') || 'Untitled Asset',
+        thumbnail: String(asset.primary_cropped_url || asset.primary_original_url || ''),
+        url: String(asset.primary_cropped_url || asset.primary_original_url || ''),
         collection_name: String(asset.app_collections?.name || 'Unknown Collection'),
         header: String(asset.header || ''),
         subheader: String(asset.subheader || ''),
@@ -165,7 +164,7 @@ serve(async (req: Request) => {
         .eq('collection_id', collectionId);
 
       if (query) {
-        assetsQuery = assetsQuery.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
+        assetsQuery = assetsQuery.or(`slug.ilike.%${query}%,header.ilike.%${query}%,subheader.ilike.%${query}%`);
       }
 
       // Apply filters
@@ -247,14 +246,15 @@ serve(async (req: Request) => {
       }
 
       resources = assets?.map((asset: Record<string, unknown>, index: number) => {
-        // Get the thumbnail URL from cropped_image_url or other URL fields
-        const thumbnailUrl = String(asset.cropped_image_url || asset.primary_image || asset.original_image_url || '');
+        // Get the thumbnail URL from proper schema fields
+        const thumbnailUrl = String(asset.primary_cropped_url || asset.primary_original_url || '');
 
-        // For the main URL, use cropped_image_url as primary choice
-        const assetUrl = String(asset.cropped_image_url || asset.primary_image || asset.original_image_url || '');
+        // For the main URL, use primary_cropped_url as primary choice
+        const assetUrl = String(asset.primary_cropped_url || asset.primary_original_url || '');
 
         if (!assetUrl) {
-          console.warn(`No image URL found for asset ${asset.id}`);
+          // Skip assets without image URLs
+          return null;
         }
 
         // Use type and comparison_mode fields
@@ -277,8 +277,8 @@ serve(async (req: Request) => {
 
         return {
           id: String(asset.id),
-          name: String(asset.title || asset.filename || '') || `Asset ${index + 1}`,
-          slug: assetSlug,  // Use the actual asset slug from CSV
+          name: String(asset.slug || '') || `Asset ${index + 1}`,
+          slug: assetSlug,  // Use the actual asset slug
           url: assetUrl,
           thumbnail: thumbnailUrl,
           company_logo_url: companyLogoUrl,
@@ -287,16 +287,13 @@ serve(async (req: Request) => {
           subheader: String(asset.subheader || ''),
           version: String(asset.version || ''),
           secondary_version: String(asset.secondary_version || ''),
-          crop_aspect_ratio: String(asset.crop_aspect_ratio || '1:1'),
-          // Add all image URL fields for dual image support
-          primary_image: String(asset.primary_image || ''),
-          secondary_image: String(asset.secondary_image || ''),
+          // Removed crop_aspect_ratio - marked as DO NOT USE in schema
+          // Only use proper schema fields for image URLs
           primary_original_url: String(asset.primary_original_url || ''),
           secondary_original_url: String(asset.secondary_original_url || ''),
           primary_cropped_url: String(asset.primary_cropped_url || ''),
           secondary_cropped_url: String(asset.secondary_cropped_url || ''),
-          primary_markup_url: String(asset.primary_markup_url || ''),
-          secondary_markup_url: String(asset.secondary_markup_url || ''),
+          // Removed deprecated fields: primary_image, secondary_image, primary_markup_url, secondary_markup_url
           type: assetType,
           asset_type: assetType,
           comparison_mode: comparisonMode,
@@ -309,7 +306,7 @@ serve(async (req: Request) => {
           tags: Array.isArray(asset.tags) ? asset.tags.map(String) : [],
           parentContainerId: String(collectionId),
         };
-      }) || [];
+      }).filter(Boolean) || [];
     }
 
     // Calculate next continuation token

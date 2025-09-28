@@ -425,7 +425,7 @@ export function App() {
       const imageAreaLeft = padding;
 
       // Calculate centered single image
-      const aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
+      const aspectRatio = parseAspectRatio('1:1'); // Default aspect ratio since crop_aspect_ratio is deprecated
       const imageWidth = Math.min(imageAreaWidth, Math.round(imageAreaHeight * aspectRatio));
       const imageHeight = Math.round(imageWidth / aspectRatio);
       const imageLeft = imageAreaLeft + Math.round((imageAreaWidth - imageWidth) / 2);
@@ -534,7 +534,7 @@ export function App() {
       }
 
       // Parse aspect ratio and determine layout - use original image aspect ratio if available
-      let aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
+      let aspectRatio = parseAspectRatio('1:1'); // Default aspect ratio since crop_aspect_ratio is deprecated
 
       // Try to get original aspect ratio from the selected URLs
       if (primaryUrls[0]) {
@@ -556,7 +556,7 @@ export function App() {
 
           aspectRatio = originalAspectRatio;
         } catch (error) {
-          // Keep the original aspectRatio from crop_aspect_ratio
+          // Keep the default aspectRatio since crop_aspect_ratio is deprecated
         }
       }
 
@@ -1361,7 +1361,7 @@ export function App() {
       }
 
       // Parse aspect ratio and determine layout - use original image aspect ratio if available
-      let aspectRatio = parseAspectRatio(asset.crop_aspect_ratio || '1:1');
+      let aspectRatio = parseAspectRatio('1:1'); // Default aspect ratio since crop_aspect_ratio is deprecated
 
       // Try to get original aspect ratio from the selected URLs
       if (primaryUrls[0]) {
@@ -1383,7 +1383,7 @@ export function App() {
 
           aspectRatio = originalAspectRatio;
         } catch (error) {
-          // Keep the original aspectRatio from crop_aspect_ratio
+          // Keep the default aspectRatio since crop_aspect_ratio is deprecated
         }
       }
 
