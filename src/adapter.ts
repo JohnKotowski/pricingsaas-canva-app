@@ -46,10 +46,6 @@ export async function findResources(
   const url = new URL(`${SUPABASE_URL}/functions/v1/canva-get-images`);
 
   try {
-    // Debug: Log the request with types
-    console.log("findResources called with:", request);
-    console.log("SearchableListView requesting types:", request.types);
-    
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -69,9 +65,6 @@ export async function findResources(
     }
 
     const body = await response.json();
-    
-    // Debug: Log the response
-    console.log("Edge function response:", body);
 
     if (body.success) {
       // Map containers (collections) separately - SearchableListView expects specific format
@@ -95,13 +88,8 @@ export async function findResources(
         parentContainerId: String(resource.parentContainerId),
       }));
 
-      // Debug: Log the final data
-      console.log("Final containers:", containers);
-      console.log("Final resources:", resources);
-      
       // Check what types SearchableListView is requesting
       const requestedTypes = request.types || [];
-      console.log("Filtering response for types:", requestedTypes);
       
       // Return different data based on what types are requested
       let finalContainers = containers;
@@ -118,10 +106,7 @@ export async function findResources(
           finalContainers = [];
         }
       }
-      
-      console.log("Final response - containers:", finalContainers);
-      console.log("Final response - resources:", finalResources);
-      
+
       return {
         type: "SUCCESS",
         resources: finalResources,
@@ -132,10 +117,6 @@ export async function findResources(
 
     throw new Error(`Supabase returned error: ${body.message || body.errorCode || 'Unknown error'}`);
   } catch (error) {
-    // Log error for debugging (will be removed in production)
-    // eslint-disable-next-line no-console
-    console.error("Failed to fetch resources from Supabase:", error);
-    
     return {
       type: "ERROR",
       resources: [],
