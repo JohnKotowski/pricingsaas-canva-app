@@ -26,11 +26,18 @@ export function App() {
   const [includeCuratedBy, setIncludeCuratedBy] = useState(true);
   const [includeFooterBar, setIncludeFooterBar] = useState(true);
   const [includeDateChip, setIncludeDateChip] = useState(true);
-  const [logoSize, setLogoSize] = useState(100);
-  const [logoOffsetX, setLogoOffsetX] = useState(32);
-  const [logoOffsetY, setLogoOffsetY] = useState(32);
+  const [logoSize, setLogoSize] = useState(58); // Default company logo size (was responsive: 58px at 1080px width)
+  const [logoOffsetX, setLogoOffsetX] = useState(40); // Default company logo position from left
+  const [logoOffsetY, setLogoOffsetY] = useState(1013); // Default Y position (in footer area for 1080px height)
   const [headerColor, setHeaderColor] = useState('#000000');
   const [subheaderColor, setSubheaderColor] = useState('#000000');
+  const [imageAreaScale, setImageAreaScale] = useState(1.0); // Scale factor for image area (1.0 = 100%, 0.75 = 75%)
+  const [headerX, setHeaderX] = useState(20); // Header X position from left
+  const [headerY, setHeaderY] = useState(15); // Header Y position from top (matches current default)
+  const [headerAlign, setHeaderAlign] = useState<'start' | 'center' | 'end'>('center'); // Header text alignment
+  const [subheaderX, setSubheaderX] = useState(20); // Subheader X position from left
+  const [subheaderY, setSubheaderY] = useState(70); // Subheader Y position from top
+  const [subheaderAlign, setSubheaderAlign] = useState<'start' | 'center' | 'end'>('center'); // Subheader text alignment
   const [uploadCache, setUploadCache] = useState<Map<string, UploadCache>>(new Map());
   const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress>>(new Map());
   const abortController = useRef<AbortController | null>(null);
@@ -69,6 +76,15 @@ export function App() {
         // Set header/subheader colors to light gray
         setHeaderColor('#F7F7F7');
         setSubheaderColor('#F7F7F7');
+        // Set logo position defaults for 816x1056
+        setLogoOffsetX(82);
+        setLogoOffsetY(930);
+        // Shrink image area by 25% (set to 75%)
+        setImageAreaScale(0.75);
+        // Set header position and alignment for 816x1056
+        setHeaderX(80);
+        setHeaderY(105);
+        setHeaderAlign('start');
         break;
       case 'custom':
         setDesignWidth(customWidth);
@@ -229,11 +245,9 @@ export function App() {
 
         // Check if URL was redirected (Canva requirement: must not redirect)
         if (response.redirected) {
-          console.warn('URL was redirected - Canva may reject this:', url, '→', response.url);
           // Still return true but warn - some redirects might work
         }
 
-        console.log('URL validation passed:', url);
         return true;
       }
 
@@ -247,11 +261,9 @@ export function App() {
           const img = new Image();
 
           img.onload = () => {
-            console.log('URL validation passed via Image fallback:', url);
             resolve(true);
           };
           img.onerror = () => {
-            console.error('URL validation failed via Image fallback:', url);
             resolve(false);
           };
 
@@ -334,7 +346,7 @@ export function App() {
         }
       }
     } catch (error) {
-      console.warn('Could not detect MIME type for', url, error);
+      // MIME type detection failed, will use fallback
     }
 
     // Fallback to extension-based detection
@@ -507,10 +519,17 @@ export function App() {
       const versionLabelSpace = 40;
       const padding = 20;
 
-      const imageAreaTop = headerSpace;
-      const imageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
-      const imageAreaWidth = designWidth - (padding * 2);
-      const imageAreaLeft = padding;
+      // Calculate original (unscaled) area dimensions
+      const originalImageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
+      const originalImageAreaWidth = designWidth - (padding * 2);
+
+      // Apply scale factor
+      const imageAreaHeight = originalImageAreaHeight * imageAreaScale;
+      const imageAreaWidth = originalImageAreaWidth * imageAreaScale;
+
+      // Center scaled area within original area
+      const imageAreaTop = headerSpace + Math.round((originalImageAreaHeight - imageAreaHeight) / 2);
+      const imageAreaLeft = padding + Math.round((originalImageAreaWidth - imageAreaWidth) / 2);
 
       // Calculate centered single image
       const aspectRatio = parseAspectRatio('1:1'); // Default aspect ratio since crop_aspect_ratio is deprecated
@@ -659,11 +678,17 @@ export function App() {
       const versionLabelSpace = 40; // Space for version labels under images
       const padding = 20; // General padding
 
-      // Available image area
-      const imageAreaTop = headerSpace;
-      const imageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
-      const imageAreaWidth = designWidth - (padding * 2);
-      const imageAreaLeft = padding;
+      // Calculate original (unscaled) area dimensions
+      const originalImageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
+      const originalImageAreaWidth = designWidth - (padding * 2);
+
+      // Apply scale factor
+      const imageAreaHeight = originalImageAreaHeight * imageAreaScale;
+      const imageAreaWidth = originalImageAreaWidth * imageAreaScale;
+
+      // Center scaled area within original area
+      const imageAreaTop = headerSpace + Math.round((originalImageAreaHeight - imageAreaHeight) / 2);
+      const imageAreaLeft = padding + Math.round((originalImageAreaWidth - imageAreaWidth) / 2);
 
       // Check minimum viable image area
       if (imageAreaWidth < 200 || imageAreaHeight < 150) {
@@ -984,12 +1009,12 @@ export function App() {
       const footerRectangleHeight = adjustedFooterHeight;
       const footerRectangleTop = designHeight - footerRectangleHeight;
 
-      // Position PricingSaas logo - use custom size and offsets from settings
-      const pricingSaasLogoWidth = logoSize;
-      const pricingSaasLogoHeight = logoSize * 0.20; // Maintain aspect ratio (approximately 5:1)
-      // Use custom offsets from settings
-      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - logoOffsetX; // Right edge with custom X offset
-      const pricingSaasLogoTop = logoOffsetY; // Custom Y offset from top
+      // Position PricingSaas logo - responsive to design dimensions, top-right of footer
+      const pricingSaasLogoWidth = Math.max(80, Math.min(146, designWidth * 0.135)); // 146px at 1080px width
+      const pricingSaasLogoHeight = Math.max(16, Math.min(29, designWidth * 0.027)); // 29px at 1080px width
+      // Position in top-right area of footer (40px from right edge)
+      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - 40;
+      const pricingSaasLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (pricingSaasLogoHeight / 2); // Centered in footer
 
       const logoElement = {
         type: "image" as const,
@@ -1041,10 +1066,9 @@ export function App() {
             aiDisclosure: "none",
           });
 
-          // Position company logo - responsive to design dimensions, centered vertically, 50% bigger
-          const logoSize = Math.max(30, Math.min(58, designWidth * 0.054)); // 58px at 1080px width (50% bigger)
-          const companyLogoLeft = 40; // More margin for better spacing
-          const companyLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (logoSize / 2);
+          // Position company logo - use custom size and offsets from settings
+          const companyLogoLeft = logoOffsetX; // Custom X offset from left
+          const companyLogoTop = logoOffsetY; // Custom Y offset from top of slide
 
           companyLogoElement = {
             type: "image" as const,
@@ -1064,9 +1088,10 @@ export function App() {
       let headerElement: any = null;
       if (asset.header && asset.header.trim()) {
         const headerPadding = 20;
-        const headerLeft = headerPadding;
-        const headerTop = 15; // Increased from 10px for better spacing
-        const headerWidth = designWidth - (headerPadding * 2);
+        // Use X and Y position from settings
+        const headerLeft = headerX;
+        const headerTop = headerY;
+        const headerWidth = designWidth - headerLeft - headerPadding;
 
         // Scale font size based on design width
         const fontSize = Math.max(24, Math.min(48, designWidth * 0.044)); // 48px at 1080px width
@@ -1080,7 +1105,7 @@ export function App() {
           fontSize: fontSize,
           fontWeight: "bold" as const,
           color: headerColor,
-          textAlign: "center" as const,
+          textAlign: headerAlign,
         };
       }
 
@@ -1088,9 +1113,10 @@ export function App() {
       let subheaderElement: any = null;
       if (asset.subheader && asset.subheader.trim()) {
         const subheaderPadding = 20;
-        const subheaderLeft = subheaderPadding;
-        const subheaderTop = 70; // Increased from 60px for better spacing from header
-        const subheaderWidth = designWidth - (subheaderPadding * 2);
+        // Use X, Y position and alignment from settings
+        const subheaderLeft = subheaderX;
+        const subheaderTop = subheaderY;
+        const subheaderWidth = designWidth - subheaderLeft - subheaderPadding;
 
         // Scale font size based on design width
         const fontSize = Math.max(16, Math.min(27, designWidth * 0.025)); // 27px at 1080px width
@@ -1104,7 +1130,7 @@ export function App() {
           fontSize: fontSize,
           fontWeight: "normal" as const,
           color: subheaderColor,
-          textAlign: "center" as const,
+          textAlign: subheaderAlign,
         };
       }
 
@@ -1179,15 +1205,14 @@ export function App() {
         textAlign: "end" as const,
       };
 
-      // Create asset slug text element - responsive positioning, better spacing
+      // Create asset slug text element - positioned to the right of company logo
       let assetSlugElement: any = null;
       if (asset.slug && asset.slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.slug);
         const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width (25% bigger than previous)
-        const logoSize = Math.max(30, Math.min(58, designWidth * 0.054)); // Match the updated logo size
-        const slugLeft = 40 + logoSize + 15; // After logo + better gap
+        const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap (using settings)
         const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
-        const slugTop = footerRectangleTop + (footerRectangleHeight / 2) - (slugFontSize / 2);
+        const slugTop = logoOffsetY + (logoSize / 2) - (slugFontSize / 2); // Vertically centered with company logo
 
         assetSlugElement = {
           type: "text" as const,
@@ -1247,14 +1272,6 @@ export function App() {
               throw new Error(`Invalid image reference for image ${index + 1}`);
             }
 
-            console.log(`Attempting to insert image ${index + 1} with coordinates:`, {
-              top: imageElement.top,
-              left: imageElement.left,
-              width: imageElement.width,
-              height: imageElement.height,
-              ref: imageElement.ref ? 'present' : 'missing'
-            });
-
             await addElementWithRetry(imageElement, `image ${index + 1}`);
 
             // Update progress to show successful image addition
@@ -1287,6 +1304,7 @@ export function App() {
           }
         }
 
+        // Add PricingSaaS logo (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           try {
             await addElementWithRetry(logoElement, 'PricingSaas logo');
@@ -1295,8 +1313,8 @@ export function App() {
           }
         }
 
-        // Add company logo at bottom (if enabled and available)
-        if (includeCuratedBy && companyLogoElement) {
+        // Add company logo at bottom (if available)
+        if (companyLogoElement) {
           try {
             await addElementWithRetry(companyLogoElement, 'company logo');
           } catch (err) {
@@ -1304,8 +1322,8 @@ export function App() {
           }
         }
 
-        // Add asset slug text (to the right of company logo, if enabled)
-        if (includeCuratedBy && assetSlugElement) {
+        // Add asset slug text (to the right of company logo)
+        if (assetSlugElement) {
           try {
             await addElementWithRetry(assetSlugElement, 'asset slug text');
           } catch (err) {
@@ -1313,7 +1331,7 @@ export function App() {
           }
         }
 
-        // Add "curated by" text (if enabled)
+        // Add "curated by" text (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           try {
             await addElementWithRetry(curatedByElement, 'curated by text');
@@ -1366,15 +1384,20 @@ export function App() {
           await addElementAtCursor(imageElement);
         }
         // Note: footerRectangleElement (shape) not supported by addElementAtCursor
+        // Add PricingSaaS logo (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           await addElementAtCursor(logoElement);
         }
-        if (includeCuratedBy && companyLogoElement) {
+
+        // Add company logo and slug (if available)
+        if (companyLogoElement) {
           await addElementAtCursor(companyLogoElement);
         }
-        if (includeCuratedBy && assetSlugElement) {
+        if (assetSlugElement) {
           await addElementAtCursor(assetSlugElement);
         }
+
+        // Add "curated by" text (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           await addElementAtCursor(curatedByElement);
         }
@@ -1512,11 +1535,17 @@ export function App() {
       const versionLabelSpace = 40; // Space for version labels under images
       const padding = 20; // General padding
 
-      // Available image area
-      const imageAreaTop = headerSpace;
-      const imageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
-      const imageAreaWidth = designWidth - (padding * 2);
-      const imageAreaLeft = padding;
+      // Calculate original (unscaled) area dimensions
+      const originalImageAreaHeight = designHeight - headerSpace - footerSpace - versionLabelSpace;
+      const originalImageAreaWidth = designWidth - (padding * 2);
+
+      // Apply scale factor
+      const imageAreaHeight = originalImageAreaHeight * imageAreaScale;
+      const imageAreaWidth = originalImageAreaWidth * imageAreaScale;
+
+      // Center scaled area within original area
+      const imageAreaTop = headerSpace + Math.round((originalImageAreaHeight - imageAreaHeight) / 2);
+      const imageAreaLeft = padding + Math.round((originalImageAreaWidth - imageAreaWidth) / 2);
 
       // Check minimum viable image area
       if (imageAreaWidth < 200 || imageAreaHeight < 150) {
@@ -1837,12 +1866,12 @@ export function App() {
       const footerRectangleHeight = adjustedFooterHeight;
       const footerRectangleTop = designHeight - footerRectangleHeight;
 
-      // Position PricingSaas logo - use custom size and offsets from settings
-      const pricingSaasLogoWidth = logoSize;
-      const pricingSaasLogoHeight = logoSize * 0.20; // Maintain aspect ratio (approximately 5:1)
-      // Use custom offsets from settings
-      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - logoOffsetX; // Right edge with custom X offset
-      const pricingSaasLogoTop = logoOffsetY; // Custom Y offset from top
+      // Position PricingSaas logo - responsive to design dimensions, top-right of footer
+      const pricingSaasLogoWidth = Math.max(80, Math.min(146, designWidth * 0.135)); // 146px at 1080px width
+      const pricingSaasLogoHeight = Math.max(16, Math.min(29, designWidth * 0.027)); // 29px at 1080px width
+      // Position in top-right area of footer (40px from right edge)
+      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - 40;
+      const pricingSaasLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (pricingSaasLogoHeight / 2); // Centered in footer
 
       const logoElement = {
         type: "image" as const,
@@ -1894,10 +1923,9 @@ export function App() {
             aiDisclosure: "none",
           });
 
-          // Position company logo - responsive to design dimensions, centered vertically, 50% bigger
-          const logoSize = Math.max(30, Math.min(58, designWidth * 0.054)); // 58px at 1080px width (50% bigger)
-          const companyLogoLeft = 40; // More margin for better spacing
-          const companyLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (logoSize / 2);
+          // Position company logo - use custom size and offsets from settings
+          const companyLogoLeft = logoOffsetX; // Custom X offset from left
+          const companyLogoTop = logoOffsetY; // Custom Y offset from top of slide
 
           companyLogoElement = {
             type: "image" as const,
@@ -1917,9 +1945,10 @@ export function App() {
       let headerElement: any = null;
       if (asset.header && asset.header.trim()) {
         const headerPadding = 20;
-        const headerLeft = headerPadding;
-        const headerTop = 15; // Increased from 10px for better spacing
-        const headerWidth = designWidth - (headerPadding * 2);
+        // Use X and Y position from settings
+        const headerLeft = headerX;
+        const headerTop = headerY;
+        const headerWidth = designWidth - headerLeft - headerPadding;
 
         // Scale font size based on design width
         const fontSize = Math.max(24, Math.min(48, designWidth * 0.044)); // 48px at 1080px width
@@ -1933,7 +1962,7 @@ export function App() {
           fontSize: fontSize,
           fontWeight: "bold" as const,
           color: headerColor,
-          textAlign: "center" as const,
+          textAlign: headerAlign,
         };
       }
 
@@ -1941,9 +1970,10 @@ export function App() {
       let subheaderElement: any = null;
       if (asset.subheader && asset.subheader.trim()) {
         const subheaderPadding = 20;
-        const subheaderLeft = subheaderPadding;
-        const subheaderTop = 70; // Increased from 60px for better spacing from header
-        const subheaderWidth = designWidth - (subheaderPadding * 2);
+        // Use X, Y position and alignment from settings
+        const subheaderLeft = subheaderX;
+        const subheaderTop = subheaderY;
+        const subheaderWidth = designWidth - subheaderLeft - subheaderPadding;
 
         // Scale font size based on design width
         const fontSize = Math.max(16, Math.min(27, designWidth * 0.025)); // 27px at 1080px width
@@ -1957,7 +1987,7 @@ export function App() {
           fontSize: fontSize,
           fontWeight: "normal" as const,
           color: subheaderColor,
-          textAlign: "center" as const,
+          textAlign: subheaderAlign,
         };
       }
 
@@ -2032,15 +2062,14 @@ export function App() {
         textAlign: "end" as const,
       };
 
-      // Create asset slug text element - responsive positioning, better spacing
+      // Create asset slug text element - positioned to the right of company logo
       let assetSlugElement: any = null;
       if (asset.slug && asset.slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.slug);
         const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width (25% bigger than previous)
-        const logoSize = Math.max(30, Math.min(58, designWidth * 0.054)); // Match the updated logo size
-        const slugLeft = 40 + logoSize + 15; // After logo + better gap
+        const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap (using settings)
         const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
-        const slugTop = footerRectangleTop + (footerRectangleHeight / 2) - (slugFontSize / 2);
+        const slugTop = logoOffsetY + (logoSize / 2) - (slugFontSize / 2); // Vertically centered with company logo
 
         assetSlugElement = {
           type: "text" as const,
@@ -2100,14 +2129,6 @@ export function App() {
               throw new Error(`Invalid image reference for image ${index + 1}`);
             }
 
-            console.log(`Attempting to insert image ${index + 1} with coordinates:`, {
-              top: imageElement.top,
-              left: imageElement.left,
-              width: imageElement.width,
-              height: imageElement.height,
-              ref: imageElement.ref ? 'present' : 'missing'
-            });
-
             await addElementWithRetry(imageElement, `image ${index + 1}`);
 
             // Update progress to show successful image addition
@@ -2140,6 +2161,7 @@ export function App() {
           }
         }
 
+        // Add PricingSaaS logo (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           try {
             await addElementWithRetry(logoElement, 'PricingSaas logo');
@@ -2148,8 +2170,8 @@ export function App() {
           }
         }
 
-        // Add company logo at bottom (if enabled and available)
-        if (includeCuratedBy && companyLogoElement) {
+        // Add company logo at bottom (if available)
+        if (companyLogoElement) {
           try {
             await addElementWithRetry(companyLogoElement, 'company logo');
           } catch (err) {
@@ -2157,8 +2179,8 @@ export function App() {
           }
         }
 
-        // Add asset slug text (to the right of company logo, if enabled)
-        if (includeCuratedBy && assetSlugElement) {
+        // Add asset slug text (to the right of company logo)
+        if (assetSlugElement) {
           try {
             await addElementWithRetry(assetSlugElement, 'asset slug text');
           } catch (err) {
@@ -2166,7 +2188,7 @@ export function App() {
           }
         }
 
-        // Add "curated by" text (if enabled)
+        // Add "curated by" text (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           try {
             await addElementWithRetry(curatedByElement, 'curated by text');
@@ -2219,15 +2241,20 @@ export function App() {
           await addElementAtCursor(imageElement);
         }
         // Note: footerRectangleElement (shape) not supported by addElementAtCursor
+        // Add PricingSaaS logo (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           await addElementAtCursor(logoElement);
         }
-        if (includeCuratedBy && companyLogoElement) {
+
+        // Add company logo and slug (if available)
+        if (companyLogoElement) {
           await addElementAtCursor(companyLogoElement);
         }
-        if (includeCuratedBy && assetSlugElement) {
+        if (assetSlugElement) {
           await addElementAtCursor(assetSlugElement);
         }
+
+        // Add "curated by" text (if "Curated by" branding is enabled)
         if (includeCuratedBy) {
           await addElementAtCursor(curatedByElement);
         }
@@ -2550,7 +2577,7 @@ export function App() {
                 </Box>
                 <Box>
                   <div style={{ marginBottom: '4px' }}>
-                    <Text size="small" tone="secondary">Offset X (px from right)</Text>
+                    <Text size="small" tone="secondary">Offset X (px from left)</Text>
                   </div>
                   <input
                     type="number"
@@ -2574,7 +2601,7 @@ export function App() {
                   <input
                     type="number"
                     value={logoOffsetY}
-                    onChange={(e) => setLogoOffsetY(Number(e.target.value) || 32)}
+                    onChange={(e) => setLogoOffsetY(Number(e.target.value) || 1013)}
                     style={{
                       width: '100%',
                       padding: '8px 12px',
@@ -2583,11 +2610,48 @@ export function App() {
                       fontSize: '14px',
                     }}
                     min="0"
-                    max="500"
+                    max="1500"
                   />
                 </Box>
                 <Text size="small" tone="tertiary">
-                  Controls company logo and slug position: {logoOffsetX}px from right, {logoOffsetY}px from top
+                  Controls company logo position: {logoOffsetX}px from left, {logoOffsetY}px from top
+                </Text>
+              </Rows>
+            </div>
+          </Box>
+
+          {/* Image Area Scale Settings */}
+          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Image Area Scale</Text>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Scale Factor (0.5 = 50%, 1.0 = 100%)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={imageAreaScale}
+                    onChange={(e) => setImageAreaScale(Math.max(0.1, Math.min(1.5, Number(e.target.value) || 1.0)))}
+                    step="0.05"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0.1"
+                    max="1.5"
+                  />
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Scales the image area: {(imageAreaScale * 100).toFixed(0)}% of available space
                 </Text>
               </Rows>
             </div>
@@ -2636,6 +2700,156 @@ export function App() {
                 </Box>
                 <Text size="small" tone="tertiary">
                   Current colors: Header {headerColor}, Subheader {subheaderColor}
+                </Text>
+              </Rows>
+            </div>
+          </Box>
+
+          {/* Header & Subheader Positioning Settings */}
+          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Header Position & Alignment</Text>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Header X Position (px from left)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={headerX}
+                    onChange={(e) => setHeaderX(Number(e.target.value) || 20)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Header Y Position (px from top)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={headerY}
+                    onChange={(e) => setHeaderY(Number(e.target.value) || 15)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Header Alignment</Text>
+                  </div>
+                  <select
+                    value={headerAlign}
+                    onChange={(e) => setHeaderAlign(e.target.value as 'start' | 'center' | 'end')}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    <option value="start">Start (Left)</option>
+                    <option value="center">Center</option>
+                    <option value="end">End (Right)</option>
+                  </select>
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Header position: {headerX}px from left, {headerY}px from top, {headerAlign} aligned
+                </Text>
+              </Rows>
+            </div>
+
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px',
+              marginTop: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Subheader Position & Alignment</Text>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Subheader X Position (px from left)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={subheaderX}
+                    onChange={(e) => setSubheaderX(Number(e.target.value) || 20)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Subheader Y Position (px from top)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={subheaderY}
+                    onChange={(e) => setSubheaderY(Number(e.target.value) || 70)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Subheader Alignment</Text>
+                  </div>
+                  <select
+                    value={subheaderAlign}
+                    onChange={(e) => setSubheaderAlign(e.target.value as 'start' | 'center' | 'end')}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    <option value="start">Start (Left)</option>
+                    <option value="center">Center</option>
+                    <option value="end">End (Right)</option>
+                  </select>
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Subheader position: {subheaderX}px from left, {subheaderY}px from top, {subheaderAlign} aligned
                 </Text>
               </Rows>
             </div>

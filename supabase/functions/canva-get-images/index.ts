@@ -149,7 +149,8 @@ serve(async (req: Request) => {
             subslug,
             companies!pages_company_id_fkey(
               logo_url,
-              slug
+              slug,
+              category
             )
           ),
           secondary_pages:pages!app_assets_secondary_page_id_fkey(
@@ -157,7 +158,8 @@ serve(async (req: Request) => {
             subslug,
             companies!pages_company_id_fkey(
               logo_url,
-              slug
+              slug,
+              category
             )
           )
         `)
@@ -211,7 +213,7 @@ serve(async (req: Request) => {
               // Look up companies by ID
               const { data: companies } = await supabase
                 .from('companies')
-                .select('id, slug, logo_url')
+                .select('id, slug, logo_url, category')
                 .in('id', companyIds);
 
               if (companies) {
@@ -239,8 +241,9 @@ serve(async (req: Request) => {
         assets.forEach(asset => {
           const directCompanySlug = String((asset.pages as any)?.companies?.slug || '');
           const directCompanyLogo = String((asset.pages as any)?.companies?.logo_url || '');
+          const directCompanyCategory = String((asset.pages as any)?.companies?.category || '');
           if (directCompanySlug && directCompanyLogo) {
-            companyLookup.set(directCompanySlug, { slug: directCompanySlug, logo_url: directCompanyLogo });
+            companyLookup.set(directCompanySlug, { slug: directCompanySlug, logo_url: directCompanyLogo, category: directCompanyCategory });
           }
         });
       }
@@ -274,6 +277,7 @@ serve(async (req: Request) => {
 
         const companySlug = String(companyInfo?.slug || directCompanySlug || '');
         const companyLogoUrl = String(companyInfo?.logo_url || (asset.pages as any)?.companies?.logo_url || '');
+        const companyCategory = String(companyInfo?.category || (asset.pages as any)?.companies?.category || '');
 
         return {
           id: String(asset.id),
@@ -283,6 +287,7 @@ serve(async (req: Request) => {
           thumbnail: thumbnailUrl,
           company_logo_url: companyLogoUrl,
           company_slug: companySlug,  // Use just the company slug
+          company_category: companyCategory,  // Company category
           header: String(asset.header || ''),
           subheader: String(asset.subheader || ''),
           version: String(asset.version || ''),
@@ -300,6 +305,7 @@ serve(async (req: Request) => {
           // Secondary page company info (if different from primary)
           secondary_company_logo_url: String((asset.secondary_pages as any)?.companies?.logo_url || ''),
           secondary_company_slug: String((asset.secondary_pages as any)?.companies?.slug || ''),
+          secondary_company_category: String((asset.secondary_pages as any)?.companies?.category || ''),
           width: Number(asset.width) || undefined,
           height: Number(asset.height) || undefined,
           contentType: String(asset.content_type || asset.mime_type || 'image/jpeg'),
@@ -329,12 +335,12 @@ serve(async (req: Request) => {
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Error fetching images:', error);
-    
+
     return new Response(
       JSON.stringify({
         success: false,
         errorCode: 'INTERNAL_ERROR',
-        message: error.message,
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
