@@ -40,7 +40,10 @@ export function SizeSelection({
             <Rows spacing="2u">
               {/* 1:1 Square option */}
               <div
-                onClick={() => setSelectedPreset('1:1')}
+                onClick={() => {
+                  setSelectedPreset('1:1');
+                  onContinue();
+                }}
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -60,7 +63,10 @@ export function SizeSelection({
 
               {/* 16:9 Landscape option */}
               <div
-                onClick={() => setSelectedPreset('16:9')}
+                onClick={() => {
+                  setSelectedPreset('16:9');
+                  onContinue();
+                }}
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -80,7 +86,10 @@ export function SizeSelection({
 
               {/* 816x1056 Portrait option */}
               <div
-                onClick={() => setSelectedPreset('816x1056')}
+                onClick={() => {
+                  setSelectedPreset('816x1056');
+                  onContinue();
+                }}
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -164,13 +173,15 @@ export function SizeSelection({
               )}
             </Rows>
 
-            {/* Confirm button */}
-            <Button
-              variant="primary"
-              onClick={onContinue}
-            >
-              Continue with Selected Size
-            </Button>
+            {/* Confirm button - only show for custom size */}
+            {selectedPreset === 'custom' && (
+              <Button
+                variant="primary"
+                onClick={onContinue}
+              >
+                Continue with Custom Size
+              </Button>
+            )}
           </Rows>
         </div>
       </Box>

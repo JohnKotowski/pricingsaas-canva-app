@@ -38,6 +38,12 @@ export function App() {
   const [subheaderX, setSubheaderX] = useState(20); // Subheader X position from left
   const [subheaderY, setSubheaderY] = useState(70); // Subheader Y position from top
   const [subheaderAlign, setSubheaderAlign] = useState<'start' | 'center' | 'end'>('center'); // Subheader text alignment
+  const [includeCategoryLabel, setIncludeCategoryLabel] = useState(true); // Toggle for category display
+  const [categoryX, setCategoryX] = useState(400); // Category X position from left
+  const [categoryY, setCategoryY] = useState(105); // Category Y position from top
+  const [categoryAlign, setCategoryAlign] = useState<'start' | 'center' | 'end'>('start'); // Category text alignment (left-aligned)
+  const [categoryColor, setCategoryColor] = useState('#F7F7F7'); // Category text color (light gray)
+  const [categoryFontSize, setCategoryFontSize] = useState(36); // Category font size (matches header max size, 25% smaller)
   const [uploadCache, setUploadCache] = useState<Map<string, UploadCache>>(new Map());
   const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress>>(new Map());
   const abortController = useRef<AbortController | null>(null);
@@ -1093,8 +1099,8 @@ export function App() {
         const headerTop = headerY;
         const headerWidth = designWidth - headerLeft - headerPadding;
 
-        // Scale font size based on design width
-        const fontSize = Math.max(24, Math.min(48, designWidth * 0.044)); // 48px at 1080px width
+        // Scale font size based on design width (25% smaller than original)
+        const fontSize = Math.max(18, Math.min(36, designWidth * 0.033)); // 36px at 1080px width
 
         headerElement = {
           type: "text" as const,
@@ -1131,6 +1137,30 @@ export function App() {
           fontWeight: "normal" as const,
           color: subheaderColor,
           textAlign: subheaderAlign,
+        };
+      }
+
+      // Create category text element - displays company category
+      let categoryElement: any = null;
+      if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
+        const categoryPadding = 20;
+        const categoryLeft = categoryX;
+        const categoryTop = categoryY;
+        const categoryWidth = designWidth - categoryLeft - categoryPadding;
+
+        // Scale font size based on design width (same scaling as header, 25% smaller)
+        const fontSize = Math.max(18, Math.min(categoryFontSize, designWidth * 0.033));
+
+        categoryElement = {
+          type: "text" as const,
+          children: [asset.company_category.trim()],
+          top: categoryTop,
+          left: categoryLeft,
+          width: categoryWidth,
+          fontSize: fontSize,
+          fontWeight: "bold" as const,
+          color: categoryColor,
+          textAlign: categoryAlign,
         };
       }
 
@@ -1358,6 +1388,15 @@ export function App() {
           }
         }
 
+        // Add category text element (if available)
+        if (categoryElement) {
+          try {
+            await addElementWithRetry(categoryElement, 'category text');
+          } catch (err) {
+            // Continue without category text if it fails
+          }
+        }
+
         // Add date pill rectangles (if enabled and available)
         if (includeDateChip) {
           for (const [index, rectangle] of datePillRectangleElements.entries()) {
@@ -1406,6 +1445,9 @@ export function App() {
         }
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
+        }
+        if (categoryElement) {
+          await addElementAtCursor(categoryElement);
         }
         // Add date pill elements (if enabled)
         if (includeDateChip) {
@@ -1950,8 +1992,8 @@ export function App() {
         const headerTop = headerY;
         const headerWidth = designWidth - headerLeft - headerPadding;
 
-        // Scale font size based on design width
-        const fontSize = Math.max(24, Math.min(48, designWidth * 0.044)); // 48px at 1080px width
+        // Scale font size based on design width (25% smaller than original)
+        const fontSize = Math.max(18, Math.min(36, designWidth * 0.033)); // 36px at 1080px width
 
         headerElement = {
           type: "text" as const,
@@ -1988,6 +2030,30 @@ export function App() {
           fontWeight: "normal" as const,
           color: subheaderColor,
           textAlign: subheaderAlign,
+        };
+      }
+
+      // Create category text element - displays company category
+      let categoryElement: any = null;
+      if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
+        const categoryPadding = 20;
+        const categoryLeft = categoryX;
+        const categoryTop = categoryY;
+        const categoryWidth = designWidth - categoryLeft - categoryPadding;
+
+        // Scale font size based on design width (same scaling as header, 25% smaller)
+        const fontSize = Math.max(18, Math.min(categoryFontSize, designWidth * 0.033));
+
+        categoryElement = {
+          type: "text" as const,
+          children: [asset.company_category.trim()],
+          top: categoryTop,
+          left: categoryLeft,
+          width: categoryWidth,
+          fontSize: fontSize,
+          fontWeight: "bold" as const,
+          color: categoryColor,
+          textAlign: categoryAlign,
         };
       }
 
@@ -2215,6 +2281,15 @@ export function App() {
           }
         }
 
+        // Add category text element (if available)
+        if (categoryElement) {
+          try {
+            await addElementWithRetry(categoryElement, 'category text');
+          } catch (err) {
+            // Continue without category text if it fails
+          }
+        }
+
         // Add date pill rectangles (if enabled and available)
         if (includeDateChip) {
           for (const [index, rectangle] of datePillRectangleElements.entries()) {
@@ -2263,6 +2338,9 @@ export function App() {
         }
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
+        }
+        if (categoryElement) {
+          await addElementAtCursor(categoryElement);
         }
         // Add date pill elements (if enabled)
         if (includeDateChip) {
@@ -2850,6 +2928,130 @@ export function App() {
                 </Box>
                 <Text size="small" tone="tertiary">
                   Subheader position: {subheaderX}px from left, {subheaderY}px from top, {subheaderAlign} aligned
+                </Text>
+              </Rows>
+            </div>
+          </Box>
+
+          {/* Company Category Position & Styling Settings */}
+          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Company Category Display</Text>
+                <Box>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeCategoryLabel}
+                      onChange={(e) => setIncludeCategoryLabel(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <Text size="small">Show Company Category</Text>
+                  </label>
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Category X Position (px from left)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={categoryX}
+                    onChange={(e) => setCategoryX(Number(e.target.value) || 400)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Category Y Position (px from top)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={categoryY}
+                    onChange={(e) => setCategoryY(Number(e.target.value) || 105)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Category Alignment</Text>
+                  </div>
+                  <select
+                    value={categoryAlign}
+                    onChange={(e) => setCategoryAlign(e.target.value as 'start' | 'center' | 'end')}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      backgroundColor: '#ffffff',
+                    }}
+                  >
+                    <option value="start">Start (Left)</option>
+                    <option value="center">Center</option>
+                    <option value="end">End (Right)</option>
+                  </select>
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Font Size (px)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={categoryFontSize}
+                    onChange={(e) => setCategoryFontSize(Number(e.target.value) || 36)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="8"
+                    max="100"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Text Color</Text>
+                  </div>
+                  <input
+                    type="color"
+                    value={categoryColor}
+                    onChange={(e) => setCategoryColor(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '4px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      height: '40px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Category position: {categoryX}px from left, {categoryY}px from top, {categoryAlign} aligned, {categoryFontSize}px font
                 </Text>
               </Rows>
             </div>
