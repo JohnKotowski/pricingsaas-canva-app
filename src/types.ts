@@ -30,7 +30,7 @@ export interface Collection {
 }
 
 export type TabType = 'collections' | 'settings';
-export type SizePreset = '1:1' | '16:9' | 'custom';
+export type SizePreset = '1:1' | '16:9' | '816x1056' | 'custom';
 
 export interface UploadCache {
   ref: any;

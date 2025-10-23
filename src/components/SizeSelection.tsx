@@ -37,13 +37,13 @@ export function SizeSelection({
             </Box>
 
             {/* Size preset options */}
-            <Rows spacing="3u">
+            <Rows spacing="2u">
               {/* 1:1 Square option */}
               <div
                 onClick={() => setSelectedPreset('1:1')}
                 style={{
                   width: '100%',
-                  padding: '16px',
+                  padding: '12px',
                   border: selectedPreset === '1:1' ? '2px solid #6366f1' : '2px solid #e5e7eb',
                   borderRadius: '8px',
                   backgroundColor: selectedPreset === '1:1' ? '#f0f9ff' : '#ffffff',
@@ -51,7 +51,7 @@ export function SizeSelection({
                   transition: 'all 0.2s ease',
                 }}
               >
-                <Rows spacing="1u">
+                <Rows spacing="0.5u">
                   <Text size="medium">1:1 Square</Text>
                   <Text size="small" tone="secondary">1080 × 1080 pixels</Text>
                   <Text size="small" tone="tertiary">Perfect for social media posts</Text>
@@ -63,7 +63,7 @@ export function SizeSelection({
                 onClick={() => setSelectedPreset('16:9')}
                 style={{
                   width: '100%',
-                  padding: '16px',
+                  padding: '12px',
                   border: selectedPreset === '16:9' ? '2px solid #6366f1' : '2px solid #e5e7eb',
                   borderRadius: '8px',
                   backgroundColor: selectedPreset === '16:9' ? '#f0f9ff' : '#ffffff',
@@ -71,10 +71,30 @@ export function SizeSelection({
                   transition: 'all 0.2s ease',
                 }}
               >
-                <Rows spacing="1u">
+                <Rows spacing="0.5u">
                   <Text size="medium">16:9 Landscape</Text>
                   <Text size="small" tone="secondary">1920 × 1080 pixels</Text>
                   <Text size="small" tone="tertiary">Great for presentations and headers</Text>
+                </Rows>
+              </div>
+
+              {/* 816x1056 Portrait option */}
+              <div
+                onClick={() => setSelectedPreset('816x1056')}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: selectedPreset === '816x1056' ? '2px solid #6366f1' : '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  backgroundColor: selectedPreset === '816x1056' ? '#f0f9ff' : '#ffffff',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                <Rows spacing="0.5u">
+                  <Text size="medium">816 × 1056 Portrait</Text>
+                  <Text size="small" tone="secondary">816 × 1056 pixels</Text>
+                  <Text size="small" tone="tertiary">Optimized for vertical content</Text>
                 </Rows>
               </div>
 
@@ -83,7 +103,7 @@ export function SizeSelection({
                 onClick={() => setSelectedPreset('custom')}
                 style={{
                   width: '100%',
-                  padding: '16px',
+                  padding: '12px',
                   border: selectedPreset === 'custom' ? '2px solid #6366f1' : '2px solid #e5e7eb',
                   borderRadius: '8px',
                   backgroundColor: selectedPreset === 'custom' ? '#f0f9ff' : '#ffffff',
@@ -91,7 +111,7 @@ export function SizeSelection({
                   transition: 'all 0.2s ease',
                 }}
               >
-                <Rows spacing="1u">
+                <Rows spacing="0.5u">
                   <Text size="medium">Custom Size</Text>
                   <Text size="small" tone="secondary">Enter your own dimensions</Text>
                 </Rows>

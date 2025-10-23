@@ -22,6 +22,15 @@ export function App() {
   const [designWidth, setDesignWidth] = useState(1080);
   const [designHeight, setDesignHeight] = useState(1080);
   const [footerHeight, setFooterHeight] = useState(75);
+  const [addBackground, setAddBackground] = useState(true);
+  const [includeCuratedBy, setIncludeCuratedBy] = useState(true);
+  const [includeFooterBar, setIncludeFooterBar] = useState(true);
+  const [includeDateChip, setIncludeDateChip] = useState(true);
+  const [logoSize, setLogoSize] = useState(100);
+  const [logoOffsetX, setLogoOffsetX] = useState(32);
+  const [logoOffsetY, setLogoOffsetY] = useState(32);
+  const [headerColor, setHeaderColor] = useState('#000000');
+  const [subheaderColor, setSubheaderColor] = useState('#000000');
   const [uploadCache, setUploadCache] = useState<Map<string, UploadCache>>(new Map());
   const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress>>(new Map());
   const abortController = useRef<AbortController | null>(null);
@@ -47,6 +56,19 @@ export function App() {
       case '16:9':
         setDesignWidth(1920);
         setDesignHeight(1080);
+        break;
+      case '816x1056':
+        // Apply 816x1056 template settings
+        setDesignWidth(816);
+        setDesignHeight(1056);
+        // Turn OFF all layout options
+        setAddBackground(false);
+        setIncludeCuratedBy(false);
+        setIncludeFooterBar(false);
+        setIncludeDateChip(false);
+        // Set header/subheader colors to light gray
+        setHeaderColor('#F7F7F7');
+        setSubheaderColor('#F7F7F7');
         break;
       case 'custom':
         setDesignWidth(customWidth);
@@ -162,14 +184,33 @@ export function App() {
     setError(null);
   };
 
-  // Improved URL validation that tests actual accessibility
+  // Improved URL validation that tests actual accessibility and Canva requirements
   const validateImageUrl = async (url: string): Promise<boolean> => {
-    if (!url || !url.trim()) return false;
+    if (!url || !url.trim()) {
+      console.error('URL validation failed: empty URL');
+      return false;
+    }
+
+    // Check Canva requirements
+    if (!url.startsWith('https://')) {
+      console.error('URL validation failed: must use HTTPS', url);
+      return false;
+    }
+
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      console.error('URL validation failed: must not be localhost', url);
+      return false;
+    }
+
+    if (url.length > 4096) {
+      console.error('URL validation failed: exceeds 4096 characters', url);
+      return false;
+    }
 
     try {
       // First try a proper HTTP HEAD request (without no-cors)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
       const response = await fetch(url, {
         method: 'HEAD',
@@ -181,29 +222,53 @@ export function App() {
       // Check if response is ok and content type is an image
       if (response.ok) {
         const contentType = response.headers.get('content-type') || '';
-        return contentType.startsWith('image/');
+        if (!contentType.startsWith('image/')) {
+          console.error('URL validation failed: invalid content-type', contentType, url);
+          return false;
+        }
+
+        // Check if URL was redirected (Canva requirement: must not redirect)
+        if (response.redirected) {
+          console.warn('URL was redirected - Canva may reject this:', url, '→', response.url);
+          // Still return true but warn - some redirects might work
+        }
+
+        console.log('URL validation passed:', url);
+        return true;
       }
+
+      console.error('URL validation failed: non-200 status', response.status, url);
+      return false;
     } catch (error) {
+      console.error('URL validation failed with fetch error:', error, url);
       // Fallback to image loading test
       try {
         return await new Promise<boolean>((resolve) => {
           const img = new Image();
 
-          img.onload = () => resolve(true);
-          img.onerror = () => resolve(false);
+          img.onload = () => {
+            console.log('URL validation passed via Image fallback:', url);
+            resolve(true);
+          };
+          img.onerror = () => {
+            console.error('URL validation failed via Image fallback:', url);
+            resolve(false);
+          };
 
           // Don't set crossOrigin for better compatibility
           img.src = url;
 
           // Shorter timeout for faster fallback
-          setTimeout(() => resolve(false), 3000);
+          setTimeout(() => {
+            console.error('URL validation timed out:', url);
+            resolve(false);
+          }, 5000);
         });
       } catch {
+        console.error('URL validation completely failed:', url);
         return false;
       }
     }
-
-    return false;
   };
 
   const getProgressiveFallbackUrls = (asset: Asset): string[] => {
@@ -212,8 +277,8 @@ export function App() {
       asset.primary_original_url
     ].filter(Boolean);
 
-    // Apply Cloudinary format conversion and HTTPS to all URLs
-    const processedUrls = urls.map(url => ensureHttps(convertCloudinaryFormat(url!)));
+    // Apply HTTPS to all URLs, keeping original formats to avoid Cloudinary regeneration delays
+    const processedUrls = urls.map(url => ensureHttps(url!));
 
     // Return processed URLs with unique entries only
     return [...new Set(processedUrls)];
@@ -225,7 +290,7 @@ export function App() {
       asset.primary_original_url
     ].filter(Boolean);
 
-    // Apply only HTTPS conversion, keep original format (no PNG conversion)
+    // Apply only HTTPS conversion, keep original format as-is
     const processedUrls = urls.map(url => ensureHttps(url!));
 
     // Return processed URLs with unique entries only
@@ -244,16 +309,39 @@ export function App() {
   };
 
   const convertCloudinaryFormat = (url: string): string => {
-    if (!url || !url.includes('cloudinary.com')) return url;
+    // No longer converting formats - use original URLs as-is
+    // This prevents Cloudinary from generating new images on-the-fly
+    // which can cause timing issues with Canva's image fetching
+    return url;
+  };
 
-    // Convert JPG to PNG for Cloudinary URLs (better Canva compatibility)
-    if (url.toLowerCase().endsWith('.jpg') || url.toLowerCase().endsWith('.jpeg')) {
-      const convertedUrl = url.replace(/\.(jpg|jpeg)$/i, '.png');
-      return convertedUrl;
+  const detectActualMimeType = async (url: string): Promise<string> => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const response = await fetch(url, {
+        method: 'HEAD',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.startsWith('image/')) {
+          return contentType;
+        }
+      }
+    } catch (error) {
+      console.warn('Could not detect MIME type for', url, error);
     }
 
-    // Keep PNG as is for Cloudinary
-    return url;
+    // Fallback to extension-based detection
+    const lowerUrl = url.toLowerCase();
+    if (lowerUrl.endsWith('.png') || lowerUrl.includes('/f_png/')) return 'image/png';
+    if (lowerUrl.endsWith('.webp') || lowerUrl.includes('/f_webp/')) return 'image/webp';
+    return 'image/jpeg';
   };
 
   const uploadWithRetry = async (urls: string[], config: any, maxRetries = 3): Promise<any> => {
@@ -276,10 +364,14 @@ export function App() {
     for (const url of validUrls) {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
+          // Detect actual MIME type from the URL (handles f_auto correctly)
+          const actualMimeType = await detectActualMimeType(url);
+
           const uploadConfig = {
             ...config,
             url: url,
-            thumbnailUrl: url
+            thumbnailUrl: url,
+            mimeType: actualMimeType  // Use detected MIME type
           };
 
           const result = await upload(uploadConfig);
@@ -362,7 +454,7 @@ export function App() {
 
     for (const url of sources) {
       if (url && url.trim() !== '') {
-        return convertCloudinaryFormat(ensureHttps(url));
+        return ensureHttps(url);
       }
     }
 
@@ -390,7 +482,7 @@ export function App() {
         urls = [
           asset.secondary_cropped_url,
           asset.secondary_original_url
-        ].filter(Boolean).map(url => ensureHttps(convertCloudinaryFormat(url!)));
+        ].filter(Boolean).map(url => ensureHttps(url!));
       }
 
       if (urls.length === 0) {
@@ -404,12 +496,8 @@ export function App() {
         message: `Uploading ${imageType} image...`
       }));
 
-      // Determine MIME type - if we converted a Cloudinary JPG to PNG, use PNG MIME type
-      const mimeType = urls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-
       const uploadResult = await uploadWithRetry(urls, {
         type: "image",
-        mimeType: mimeType,
         aiDisclosure: "none",
       });
 
@@ -526,7 +614,7 @@ export function App() {
       const secondaryUrls = hasDualImages ? [
         asset.secondary_cropped_url,
         asset.secondary_original_url
-      ].filter(Boolean).map(url => ensureHttps(convertCloudinaryFormat(url!))) : [];
+      ].filter(Boolean).map(url => ensureHttps(url!)) : [];
 
 
       if (primaryUrls.length === 0) {
@@ -740,12 +828,8 @@ export function App() {
         // Use cached result if less than 5 minutes old
         primaryUploadResult = { ref: cachedPrimary.ref };
       } else {
-        // Determine MIME type - if we converted a Cloudinary JPG to PNG, use PNG MIME type
-        const mimeType = primaryUrls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-
         primaryUploadResult = await uploadWithRetry(primaryUrls, {
           type: "image",
-          mimeType: mimeType,
           aiDisclosure: "none",
         });
 
@@ -810,12 +894,8 @@ export function App() {
             secondaryUploadResult = { ref: cachedSecondary.ref };
           } else {
             try {
-              // Determine MIME type - if we converted a Cloudinary JPG to PNG, use PNG MIME type
-              const mimeType = secondaryUrls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-
               secondaryUploadResult = await uploadWithRetry(secondaryUrls, {
                 type: "image",
-                mimeType: mimeType,
                 aiDisclosure: "none",
               });
 
@@ -893,21 +973,23 @@ export function App() {
         aiDisclosure: "none",
       });
 
-      // Set page background color
-      await setCurrentPageBackground({
-        color: "#F7F7F7"
-      });
+      // Set page background color (if enabled)
+      if (addBackground) {
+        await setCurrentPageBackground({
+          color: "#F7F7F7"
+        });
+      }
 
       // Create footer rectangle element - responsive to design width
       const footerRectangleHeight = adjustedFooterHeight;
       const footerRectangleTop = designHeight - footerRectangleHeight;
 
-      // Position PricingSaas logo - responsive to design dimensions and better spacing for 16:9, 50% bigger
-      const pricingSaasLogoWidth = Math.max(120, Math.min(219, designWidth * 0.203)); // 219px at 1080px width (50% bigger)
-      const pricingSaasLogoHeight = Math.max(24, Math.min(44, designWidth * 0.041)); // 44px at 1080px width (50% bigger)
-      // Better spacing for 16:9 and center elements properly
-      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - 40; // Right edge with margin
-      const pricingSaasLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (pricingSaasLogoHeight / 2); // Center vertically in footer
+      // Position PricingSaas logo - use custom size and offsets from settings
+      const pricingSaasLogoWidth = logoSize;
+      const pricingSaasLogoHeight = logoSize * 0.20; // Maintain aspect ratio (approximately 5:1)
+      // Use custom offsets from settings
+      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - logoOffsetX; // Right edge with custom X offset
+      const pricingSaasLogoTop = logoOffsetY; // Custom Y offset from top
 
       const logoElement = {
         type: "image" as const,
@@ -997,7 +1079,7 @@ export function App() {
           width: headerWidth,
           fontSize: fontSize,
           fontWeight: "bold" as const,
-          color: "#132442",
+          color: headerColor,
           textAlign: "center" as const,
         };
       }
@@ -1021,7 +1103,7 @@ export function App() {
           width: subheaderWidth,
           fontSize: fontSize,
           fontWeight: "normal" as const,
-          color: "#132442",
+          color: subheaderColor,
           textAlign: "center" as const,
         };
       }
@@ -1122,12 +1204,24 @@ export function App() {
 
       // Helper function to add element with retry logic
       const addElementWithRetry = async (element: any, elementName: string, maxRetries = 3) => {
+        // Validate element coordinates before attempting to add
+        if (element.top < 0 || element.left < 0 || element.width <= 0 || element.height <= 0) {
+          console.error(`Invalid coordinates for ${elementName}:`, {
+            top: element.top,
+            left: element.left,
+            width: element.width,
+            height: element.height
+          });
+          throw new Error(`Invalid coordinates for ${elementName}: position must be non-negative and size must be positive`);
+        }
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             await addElementAtPoint(element);
             return;
           } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            console.error(`Attempt ${attempt}/${maxRetries} failed for ${elementName}:`, errorMessage);
 
             if (attempt === maxRetries) {
               throw new Error(`Failed to add ${elementName} after ${maxRetries} attempts: ${errorMessage}`);
@@ -1145,15 +1239,21 @@ export function App() {
         // Add all image elements (single or dual) with enhanced error handling
         for (const [index, imageElement] of imageElements.entries()) {
           try {
-            // Add delay between images to prevent Canva conflicts
-            if (index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay
-            }
+            // Add delay between images to prevent Canva conflicts (always add delay, even for first image)
+            await new Promise(resolve => setTimeout(resolve, index === 0 ? 300 : 500));
 
             // Validate image element before adding
             if (!imageElement.ref) {
               throw new Error(`Invalid image reference for image ${index + 1}`);
             }
+
+            console.log(`Attempting to insert image ${index + 1} with coordinates:`, {
+              top: imageElement.top,
+              left: imageElement.left,
+              width: imageElement.width,
+              height: imageElement.height,
+              ref: imageElement.ref ? 'present' : 'missing'
+            });
 
             await addElementWithRetry(imageElement, `image ${index + 1}`);
 
@@ -1179,20 +1279,24 @@ export function App() {
           }
         }
 
-        try {
-          await addElementWithRetry(footerRectangleElement, 'footer rectangle');
-        } catch (err) {
-          // Continue without footer rectangle if it fails
+        if (includeFooterBar) {
+          try {
+            await addElementWithRetry(footerRectangleElement, 'footer rectangle');
+          } catch (err) {
+            // Continue without footer rectangle if it fails
+          }
         }
 
-        try {
-          await addElementWithRetry(logoElement, 'PricingSaas logo');
-        } catch (err) {
-          // Continue without logo if it fails
+        if (includeCuratedBy) {
+          try {
+            await addElementWithRetry(logoElement, 'PricingSaas logo');
+          } catch (err) {
+            // Continue without logo if it fails
+          }
         }
 
-        // Add company logo at bottom (if available)
-        if (companyLogoElement) {
+        // Add company logo at bottom (if enabled and available)
+        if (includeCuratedBy && companyLogoElement) {
           try {
             await addElementWithRetry(companyLogoElement, 'company logo');
           } catch (err) {
@@ -1200,8 +1304,8 @@ export function App() {
           }
         }
 
-        // Add asset slug text (to the right of company logo)
-        if (assetSlugElement) {
+        // Add asset slug text (to the right of company logo, if enabled)
+        if (includeCuratedBy && assetSlugElement) {
           try {
             await addElementWithRetry(assetSlugElement, 'asset slug text');
           } catch (err) {
@@ -1209,11 +1313,13 @@ export function App() {
           }
         }
 
-        // Add "curated by" text
-        try {
-          await addElementWithRetry(curatedByElement, 'curated by text');
-        } catch (err) {
-          // Continue without curated by text if it fails
+        // Add "curated by" text (if enabled)
+        if (includeCuratedBy) {
+          try {
+            await addElementWithRetry(curatedByElement, 'curated by text');
+          } catch (err) {
+            // Continue without curated by text if it fails
+          }
         }
 
         // Add header text element (if available)
@@ -1234,21 +1340,23 @@ export function App() {
           }
         }
 
-        // Add date pill rectangles (if available)
-        for (const [index, rectangle] of datePillRectangleElements.entries()) {
-          try {
-            await addElementWithRetry(rectangle, `date pill rectangle ${index + 1}`);
-          } catch (err) {
-            // Continue without this date pill rectangle if it fails
+        // Add date pill rectangles (if enabled and available)
+        if (includeDateChip) {
+          for (const [index, rectangle] of datePillRectangleElements.entries()) {
+            try {
+              await addElementWithRetry(rectangle, `date pill rectangle ${index + 1}`);
+            } catch (err) {
+              // Continue without this date pill rectangle if it fails
+            }
           }
-        }
 
-        // Add date pill texts (if available)
-        for (const [index, pill] of datePillElements.entries()) {
-          try {
-            await addElementWithRetry(pill, `date pill text ${index + 1}`);
-          } catch (err) {
-            // Continue without this date pill text if it fails
+          // Add date pill texts (if available)
+          for (const [index, pill] of datePillElements.entries()) {
+            try {
+              await addElementWithRetry(pill, `date pill text ${index + 1}`);
+            } catch (err) {
+              // Continue without this date pill text if it fails
+            }
           }
         }
 
@@ -1258,26 +1366,32 @@ export function App() {
           await addElementAtCursor(imageElement);
         }
         // Note: footerRectangleElement (shape) not supported by addElementAtCursor
-        await addElementAtCursor(logoElement);
-        if (companyLogoElement) {
+        if (includeCuratedBy) {
+          await addElementAtCursor(logoElement);
+        }
+        if (includeCuratedBy && companyLogoElement) {
           await addElementAtCursor(companyLogoElement);
         }
-        if (assetSlugElement) {
+        if (includeCuratedBy && assetSlugElement) {
           await addElementAtCursor(assetSlugElement);
         }
-        await addElementAtCursor(curatedByElement);
+        if (includeCuratedBy) {
+          await addElementAtCursor(curatedByElement);
+        }
         if (headerElement) {
           await addElementAtCursor(headerElement);
         }
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
         }
-        // Add date pill elements
-        for (const rectangle of datePillRectangleElements) {
-          await addElementAtCursor(rectangle);
-        }
-        for (const pill of datePillElements) {
-          await addElementAtCursor(pill);
+        // Add date pill elements (if enabled)
+        if (includeDateChip) {
+          for (const rectangle of datePillRectangleElements) {
+            await addElementAtCursor(rectangle);
+          }
+          for (const pill of datePillElements) {
+            await addElementAtCursor(pill);
+          }
         }
       } else {
         throw new Error("Image insertion not supported");
@@ -1567,12 +1681,8 @@ export function App() {
         // Use cached result if less than 5 minutes old
         primaryUploadResult = { ref: cachedPrimary.ref };
       } else {
-        // Determine MIME type based on original URL extension
-        const mimeType = primaryUrls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-
         primaryUploadResult = await uploadWithRetry(primaryUrls, {
           type: "image",
-          mimeType: mimeType,
           aiDisclosure: "none",
         });
 
@@ -1637,12 +1747,8 @@ export function App() {
             secondaryUploadResult = { ref: cachedSecondary.ref };
           } else {
             try {
-              // Determine MIME type based on original URL extension
-              const mimeType = secondaryUrls[0].toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-
               secondaryUploadResult = await uploadWithRetry(secondaryUrls, {
                 type: "image",
-                mimeType: mimeType,
                 aiDisclosure: "none",
               });
 
@@ -1720,21 +1826,23 @@ export function App() {
         aiDisclosure: "none",
       });
 
-      // Set page background color
-      await setCurrentPageBackground({
-        color: "#F7F7F7"
-      });
+      // Set page background color (if enabled)
+      if (addBackground) {
+        await setCurrentPageBackground({
+          color: "#F7F7F7"
+        });
+      }
 
       // Create footer rectangle element - responsive to design width
       const footerRectangleHeight = adjustedFooterHeight;
       const footerRectangleTop = designHeight - footerRectangleHeight;
 
-      // Position PricingSaas logo - responsive to design dimensions and better spacing for 16:9, 50% bigger
-      const pricingSaasLogoWidth = Math.max(120, Math.min(219, designWidth * 0.203)); // 219px at 1080px width (50% bigger)
-      const pricingSaasLogoHeight = Math.max(24, Math.min(44, designWidth * 0.041)); // 44px at 1080px width (50% bigger)
-      // Better spacing for 16:9 and center elements properly
-      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - 40; // Right edge with margin
-      const pricingSaasLogoTop = footerRectangleTop + (footerRectangleHeight / 2) - (pricingSaasLogoHeight / 2); // Center vertically in footer
+      // Position PricingSaas logo - use custom size and offsets from settings
+      const pricingSaasLogoWidth = logoSize;
+      const pricingSaasLogoHeight = logoSize * 0.20; // Maintain aspect ratio (approximately 5:1)
+      // Use custom offsets from settings
+      const pricingSaasLogoLeft = designWidth - pricingSaasLogoWidth - logoOffsetX; // Right edge with custom X offset
+      const pricingSaasLogoTop = logoOffsetY; // Custom Y offset from top
 
       const logoElement = {
         type: "image" as const,
@@ -1824,7 +1932,7 @@ export function App() {
           width: headerWidth,
           fontSize: fontSize,
           fontWeight: "bold" as const,
-          color: "#132442",
+          color: headerColor,
           textAlign: "center" as const,
         };
       }
@@ -1848,7 +1956,7 @@ export function App() {
           width: subheaderWidth,
           fontSize: fontSize,
           fontWeight: "normal" as const,
-          color: "#132442",
+          color: subheaderColor,
           textAlign: "center" as const,
         };
       }
@@ -1949,12 +2057,24 @@ export function App() {
 
       // Helper function to add element with retry logic
       const addElementWithRetry = async (element: any, elementName: string, maxRetries = 3) => {
+        // Validate element coordinates before attempting to add
+        if (element.top < 0 || element.left < 0 || element.width <= 0 || element.height <= 0) {
+          console.error(`Invalid coordinates for ${elementName}:`, {
+            top: element.top,
+            left: element.left,
+            width: element.width,
+            height: element.height
+          });
+          throw new Error(`Invalid coordinates for ${elementName}: position must be non-negative and size must be positive`);
+        }
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
             await addElementAtPoint(element);
             return;
           } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            console.error(`Attempt ${attempt}/${maxRetries} failed for ${elementName}:`, errorMessage);
 
             if (attempt === maxRetries) {
               throw new Error(`Failed to add ${elementName} after ${maxRetries} attempts: ${errorMessage}`);
@@ -1972,15 +2092,21 @@ export function App() {
         // Add all image elements (single or dual) with enhanced error handling
         for (const [index, imageElement] of imageElements.entries()) {
           try {
-            // Add delay between images to prevent Canva conflicts
-            if (index > 0) {
-              await new Promise(resolve => setTimeout(resolve, 500)); // Increased delay
-            }
+            // Add delay between images to prevent Canva conflicts (always add delay, even for first image)
+            await new Promise(resolve => setTimeout(resolve, index === 0 ? 300 : 500));
 
             // Validate image element before adding
             if (!imageElement.ref) {
               throw new Error(`Invalid image reference for image ${index + 1}`);
             }
+
+            console.log(`Attempting to insert image ${index + 1} with coordinates:`, {
+              top: imageElement.top,
+              left: imageElement.left,
+              width: imageElement.width,
+              height: imageElement.height,
+              ref: imageElement.ref ? 'present' : 'missing'
+            });
 
             await addElementWithRetry(imageElement, `image ${index + 1}`);
 
@@ -2006,20 +2132,24 @@ export function App() {
           }
         }
 
-        try {
-          await addElementWithRetry(footerRectangleElement, 'footer rectangle');
-        } catch (err) {
-          // Continue without footer rectangle if it fails
+        if (includeFooterBar) {
+          try {
+            await addElementWithRetry(footerRectangleElement, 'footer rectangle');
+          } catch (err) {
+            // Continue without footer rectangle if it fails
+          }
         }
 
-        try {
-          await addElementWithRetry(logoElement, 'PricingSaas logo');
-        } catch (err) {
-          // Continue without logo if it fails
+        if (includeCuratedBy) {
+          try {
+            await addElementWithRetry(logoElement, 'PricingSaas logo');
+          } catch (err) {
+            // Continue without logo if it fails
+          }
         }
 
-        // Add company logo at bottom (if available)
-        if (companyLogoElement) {
+        // Add company logo at bottom (if enabled and available)
+        if (includeCuratedBy && companyLogoElement) {
           try {
             await addElementWithRetry(companyLogoElement, 'company logo');
           } catch (err) {
@@ -2027,8 +2157,8 @@ export function App() {
           }
         }
 
-        // Add asset slug text (to the right of company logo)
-        if (assetSlugElement) {
+        // Add asset slug text (to the right of company logo, if enabled)
+        if (includeCuratedBy && assetSlugElement) {
           try {
             await addElementWithRetry(assetSlugElement, 'asset slug text');
           } catch (err) {
@@ -2036,11 +2166,13 @@ export function App() {
           }
         }
 
-        // Add "curated by" text
-        try {
-          await addElementWithRetry(curatedByElement, 'curated by text');
-        } catch (err) {
-          // Continue without curated by text if it fails
+        // Add "curated by" text (if enabled)
+        if (includeCuratedBy) {
+          try {
+            await addElementWithRetry(curatedByElement, 'curated by text');
+          } catch (err) {
+            // Continue without curated by text if it fails
+          }
         }
 
         // Add header text element (if available)
@@ -2061,21 +2193,23 @@ export function App() {
           }
         }
 
-        // Add date pill rectangles (if available)
-        for (const [index, rectangle] of datePillRectangleElements.entries()) {
-          try {
-            await addElementWithRetry(rectangle, `date pill rectangle ${index + 1}`);
-          } catch (err) {
-            // Continue without this date pill rectangle if it fails
+        // Add date pill rectangles (if enabled and available)
+        if (includeDateChip) {
+          for (const [index, rectangle] of datePillRectangleElements.entries()) {
+            try {
+              await addElementWithRetry(rectangle, `date pill rectangle ${index + 1}`);
+            } catch (err) {
+              // Continue without this date pill rectangle if it fails
+            }
           }
-        }
 
-        // Add date pill texts (if available)
-        for (const [index, pill] of datePillElements.entries()) {
-          try {
-            await addElementWithRetry(pill, `date pill text ${index + 1}`);
-          } catch (err) {
-            // Continue without this date pill text if it fails
+          // Add date pill texts (if available)
+          for (const [index, pill] of datePillElements.entries()) {
+            try {
+              await addElementWithRetry(pill, `date pill text ${index + 1}`);
+            } catch (err) {
+              // Continue without this date pill text if it fails
+            }
           }
         }
 
@@ -2085,26 +2219,32 @@ export function App() {
           await addElementAtCursor(imageElement);
         }
         // Note: footerRectangleElement (shape) not supported by addElementAtCursor
-        await addElementAtCursor(logoElement);
-        if (companyLogoElement) {
+        if (includeCuratedBy) {
+          await addElementAtCursor(logoElement);
+        }
+        if (includeCuratedBy && companyLogoElement) {
           await addElementAtCursor(companyLogoElement);
         }
-        if (assetSlugElement) {
+        if (includeCuratedBy && assetSlugElement) {
           await addElementAtCursor(assetSlugElement);
         }
-        await addElementAtCursor(curatedByElement);
+        if (includeCuratedBy) {
+          await addElementAtCursor(curatedByElement);
+        }
         if (headerElement) {
           await addElementAtCursor(headerElement);
         }
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
         }
-        // Add date pill elements
-        for (const rectangle of datePillRectangleElements) {
-          await addElementAtCursor(rectangle);
-        }
-        for (const pill of datePillElements) {
-          await addElementAtCursor(pill);
+        // Add date pill elements (if enabled)
+        if (includeDateChip) {
+          for (const rectangle of datePillRectangleElements) {
+            await addElementAtCursor(rectangle);
+          }
+          for (const pill of datePillElements) {
+            await addElementAtCursor(pill);
+          }
         }
       } else {
         throw new Error("Image insertion not supported");
@@ -2284,11 +2424,222 @@ export function App() {
                   />
                 </Box>
               </Rows>
-              <Text size="small" tone="tertiary">
-                Logo will be positioned 32px from top-right corner
-              </Text>
             </Rows>
           </div>
+
+          <Box paddingTop="2u">
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Layout Options</Text>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={addBackground}
+                      onChange={(e) => setAddBackground(e.target.checked)}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <Text size="small">Add background color (#F7F7F7)</Text>
+                  </label>
+                </Box>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={includeCuratedBy}
+                      onChange={(e) => setIncludeCuratedBy(e.target.checked)}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <Text size="small">Include "Curated by" text and PricingSaaS logo</Text>
+                  </label>
+                </Box>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={includeFooterBar}
+                      onChange={(e) => setIncludeFooterBar(e.target.checked)}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <Text size="small">Include footer background bar</Text>
+                  </label>
+                </Box>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={includeDateChip}
+                      onChange={(e) => setIncludeDateChip(e.target.checked)}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <Text size="small">Include date chip</Text>
+                  </label>
+                </Box>
+              </Rows>
+            </div>
+          </Box>
+
+          <Box paddingTop="2u">
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Company Logo & Slug Settings</Text>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Company Logo Size (px)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={logoSize}
+                    onChange={(e) => setLogoSize(Number(e.target.value) || 100)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="20"
+                    max="300"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Offset X (px from right)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={logoOffsetX}
+                    onChange={(e) => setLogoOffsetX(Number(e.target.value) || 32)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Offset Y (px from top)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={logoOffsetY}
+                    onChange={(e) => setLogoOffsetY(Number(e.target.value) || 32)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="500"
+                  />
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Controls company logo and slug position: {logoOffsetX}px from right, {logoOffsetY}px from top
+                </Text>
+              </Rows>
+            </div>
+          </Box>
+
+          {/* Header & Subheader Color Settings */}
+          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+            <div style={{ marginBottom: '8px' }}>
+              <Text size="medium">Header & Subheader Color Settings</Text>
+            </div>
+            <div style={{ marginTop: '12px' }}>
+              <Rows spacing="2u">
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Header Color</Text>
+                  </div>
+                  <input
+                    type="color"
+                    value={headerColor}
+                    onChange={(e) => setHeaderColor(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Subheader Color</Text>
+                  </div>
+                  <input
+                    type="color"
+                    value={subheaderColor}
+                    onChange={(e) => setSubheaderColor(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '40px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Current colors: Header {headerColor}, Subheader {subheaderColor}
+                </Text>
+              </Rows>
+            </div>
+          </Box>
         </Box>
       );
     }
