@@ -1,5 +1,5 @@
 import { Box, Rows, Grid, Text, LoadingIndicator, Button } from "@canva/app-ui-kit";
-import { addElementAtPoint, addElementAtCursor, setCurrentPageBackground } from "@canva/design";
+import { addElementAtPoint, addElementAtCursor, setCurrentPageBackground, createRichtextRange } from "@canva/design";
 import { upload } from "@canva/asset";
 import { features } from "@canva/platform";
 import "@canva/app-ui-kit/styles.css";
@@ -35,15 +35,19 @@ export function App() {
   const [headerX, setHeaderX] = useState(20); // Header X position from left
   const [headerY, setHeaderY] = useState(15); // Header Y position from top (matches current default)
   const [headerAlign, setHeaderAlign] = useState<'start' | 'center' | 'end'>('center'); // Header text alignment
-  const [subheaderX, setSubheaderX] = useState(20); // Subheader X position from left
-  const [subheaderY, setSubheaderY] = useState(70); // Subheader Y position from top
-  const [subheaderAlign, setSubheaderAlign] = useState<'start' | 'center' | 'end'>('center'); // Subheader text alignment
+  const [subheaderX, setSubheaderX] = useState(400); // Subheader X position from left (where category used to be)
+  const [subheaderY, setSubheaderY] = useState(105); // Subheader Y position from top (where category used to be)
+  const [subheaderAlign, setSubheaderAlign] = useState<'start' | 'center' | 'end'>('start'); // Subheader text alignment (left-aligned like category was)
   const [includeCategoryLabel, setIncludeCategoryLabel] = useState(true); // Toggle for category display
   const [categoryX, setCategoryX] = useState(400); // Category X position from left
   const [categoryY, setCategoryY] = useState(105); // Category Y position from top
   const [categoryAlign, setCategoryAlign] = useState<'start' | 'center' | 'end'>('start'); // Category text alignment (left-aligned)
   const [categoryColor, setCategoryColor] = useState('#F7F7F7'); // Category text color (light gray)
   const [categoryFontSize, setCategoryFontSize] = useState(36); // Category font size (matches header max size, 25% smaller)
+  const [includeCompanyLink, setIncludeCompanyLink] = useState(true); // Toggle for company link display
+  const [companyLinkY, setCompanyLinkY] = useState(850); // Company link Y position from top (above footer)
+  const [companyLinkFontSize, setCompanyLinkFontSize] = useState(18); // Company link font size
+  const [companyLinkColor, setCompanyLinkColor] = useState('#F7F7F7'); // Company link text color (light gray)
   const [uploadCache, setUploadCache] = useState<Map<string, UploadCache>>(new Map());
   const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress>>(new Map());
   const abortController = useRef<AbortController | null>(null);
@@ -60,8 +64,11 @@ export function App() {
   }, []);
 
   // Handle size selection
-  const handleSizeSelection = () => {
-    switch (selectedPreset) {
+  const handleSizeSelection = (preset?: SizePreset) => {
+    // Use the passed preset parameter if provided, otherwise fall back to state
+    const presetToUse = preset || selectedPreset;
+
+    switch (presetToUse) {
       case '1:1':
         setDesignWidth(1080);
         setDesignHeight(1080);
@@ -1124,8 +1131,8 @@ export function App() {
         const subheaderTop = subheaderY;
         const subheaderWidth = designWidth - subheaderLeft - subheaderPadding;
 
-        // Scale font size based on design width
-        const fontSize = Math.max(16, Math.min(27, designWidth * 0.025)); // 27px at 1080px width
+        // Scale font size based on design width (same as header)
+        const fontSize = Math.max(18, Math.min(36, designWidth * 0.033)); // 36px at 1080px width (same as header)
 
         subheaderElement = {
           type: "text" as const,
@@ -1134,33 +1141,51 @@ export function App() {
           left: subheaderLeft,
           width: subheaderWidth,
           fontSize: fontSize,
-          fontWeight: "normal" as const,
+          fontWeight: "bold" as const,
           color: subheaderColor,
           textAlign: subheaderAlign,
         };
       }
 
-      // Create category text element - displays company category
-      let categoryElement: any = null;
-      if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
-        const categoryPadding = 20;
-        const categoryLeft = categoryX;
-        const categoryTop = categoryY;
-        const categoryWidth = designWidth - categoryLeft - categoryPadding;
 
-        // Scale font size based on design width (same scaling as header, 25% smaller)
-        const fontSize = Math.max(18, Math.min(categoryFontSize, designWidth * 0.033));
+      // Create company link text element - displays link to PricingSaaS company page
+      let companyLinkElement: any = null;
+      if (includeCompanyLink && asset.slug && asset.slug.trim()) {
+        // Extract the slug before the period (e.g., "aftership.returns" -> "aftership")
+        const companySlug = asset.slug.split('.')[0];
+        const linkUrl = `https://pricingsaas.com/companies/${companySlug}`;
 
-        categoryElement = {
-          type: "text" as const,
-          children: [asset.company_category.trim()],
-          top: categoryTop,
-          left: categoryLeft,
-          width: categoryWidth,
-          fontSize: fontSize,
-          fontWeight: "bold" as const,
-          color: categoryColor,
-          textAlign: categoryAlign,
+        // Calculate position: centered below images and date pills
+        // Find the bottom of the image area by getting the max top position from versionLabelPositions
+        const maxLabelTop = Math.max(...imageLayout.versionLabelPositions.map(pos => pos.top));
+        const datePillHeight = 32; // Height of date pill from line 1215
+        const spacing = 15; // Space between date pills and link
+        const linkTop = includeDateChip
+          ? maxLabelTop + datePillHeight + spacing
+          : maxLabelTop + spacing;
+
+        const linkLeft = 20; // Left padding
+        const linkWidth = designWidth - 40; // Width with padding on both sides
+
+        // Create richtext range with clickable hyperlink
+        const linkRange = createRichtextRange();
+        linkRange.appendText(linkUrl, {
+          link: linkUrl,
+          decoration: "underline",
+          color: companyLinkColor,
+          fontWeight: "normal",
+        });
+
+        // Set paragraph alignment to center
+        linkRange.formatParagraph({ index: 0, length: linkUrl.length }, { textAlign: "center" });
+
+        companyLinkElement = {
+          type: "richtext" as const,
+          range: linkRange,
+          top: linkTop,
+          left: linkLeft,
+          width: linkWidth,
+          fontSize: companyLinkFontSize,
         };
       }
 
@@ -1235,19 +1260,28 @@ export function App() {
         textAlign: "end" as const,
       };
 
-      // Create asset slug text element - positioned to the right of company logo
+      // Create asset slug and category text elements - stacked next to logo
       let assetSlugElement: any = null;
+      let categoryElement: any = null;
+
       if (asset.slug && asset.slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.slug);
-        const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width (25% bigger than previous)
-        const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap (using settings)
+        const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width
+        const categoryFontSizeCalc = Math.max(16, Math.min(22, designWidth * 0.020)); // Slightly smaller than slug
+
+        const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap
         const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
-        const slugTop = logoOffsetY + (logoSize / 2) - (slugFontSize / 2); // Vertically centered with company logo
+
+        // Calculate vertical positioning to center both elements with logo
+        const slugHeight = slugFontSize * 1.2; // Approximate line height
+        const categoryHeight = (includeCategoryLabel && asset.company_category) ? categoryFontSizeCalc * 1.2 : 0;
+        const totalTextHeight = slugHeight + categoryHeight + ((includeCategoryLabel && asset.company_category) ? 2 : 0); // 2px gap between slug and category
+        const textTop = logoOffsetY + (logoSize - totalTextHeight) / 2;
 
         assetSlugElement = {
           type: "text" as const,
           children: [formattedSlug],
-          top: slugTop,
+          top: textTop,
           left: slugLeft,
           width: slugWidth,
           fontSize: slugFontSize,
@@ -1255,6 +1289,22 @@ export function App() {
           color: "#E4E4E4",
           textAlign: "start" as const,
         };
+
+        // Create category element below slug if category exists
+        if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
+          categoryElement = {
+            type: "text" as const,
+            children: [asset.company_category.trim()],
+            top: textTop + slugHeight + 2, // 2px gap below slug
+            left: slugLeft,
+            width: slugWidth,
+            fontSize: categoryFontSizeCalc,
+            fontWeight: "normal" as const,
+            fontStyle: "italic" as const,
+            color: categoryColor,
+            textAlign: "start" as const,
+          };
+        }
       }
 
       // Helper function to add element with retry logic
@@ -1417,6 +1467,15 @@ export function App() {
           }
         }
 
+        // Add company link text element (if available)
+        if (companyLinkElement) {
+          try {
+            await addElementWithRetry(companyLinkElement, 'company link text');
+          } catch (err) {
+            // Continue without company link text if it fails
+          }
+        }
+
       } else if (features.isSupported(addElementAtCursor)) {
         // Add all image elements
         for (const imageElement of imageElements) {
@@ -1457,6 +1516,10 @@ export function App() {
           for (const pill of datePillElements) {
             await addElementAtCursor(pill);
           }
+        }
+        // Add company link text element (if available)
+        if (companyLinkElement) {
+          await addElementAtCursor(companyLinkElement);
         }
       } else {
         throw new Error("Image insertion not supported");
@@ -2017,8 +2080,8 @@ export function App() {
         const subheaderTop = subheaderY;
         const subheaderWidth = designWidth - subheaderLeft - subheaderPadding;
 
-        // Scale font size based on design width
-        const fontSize = Math.max(16, Math.min(27, designWidth * 0.025)); // 27px at 1080px width
+        // Scale font size based on design width (same as header)
+        const fontSize = Math.max(18, Math.min(36, designWidth * 0.033)); // 36px at 1080px width (same as header)
 
         subheaderElement = {
           type: "text" as const,
@@ -2027,33 +2090,51 @@ export function App() {
           left: subheaderLeft,
           width: subheaderWidth,
           fontSize: fontSize,
-          fontWeight: "normal" as const,
+          fontWeight: "bold" as const,
           color: subheaderColor,
           textAlign: subheaderAlign,
         };
       }
 
-      // Create category text element - displays company category
-      let categoryElement: any = null;
-      if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
-        const categoryPadding = 20;
-        const categoryLeft = categoryX;
-        const categoryTop = categoryY;
-        const categoryWidth = designWidth - categoryLeft - categoryPadding;
 
-        // Scale font size based on design width (same scaling as header, 25% smaller)
-        const fontSize = Math.max(18, Math.min(categoryFontSize, designWidth * 0.033));
+      // Create company link text element - displays link to PricingSaaS company page
+      let companyLinkElement: any = null;
+      if (includeCompanyLink && asset.slug && asset.slug.trim()) {
+        // Extract the slug before the period (e.g., "aftership.returns" -> "aftership")
+        const companySlug = asset.slug.split('.')[0];
+        const linkUrl = `https://pricingsaas.com/companies/${companySlug}`;
 
-        categoryElement = {
-          type: "text" as const,
-          children: [asset.company_category.trim()],
-          top: categoryTop,
-          left: categoryLeft,
-          width: categoryWidth,
-          fontSize: fontSize,
-          fontWeight: "bold" as const,
-          color: categoryColor,
-          textAlign: categoryAlign,
+        // Calculate position: centered below images and date pills
+        // Find the bottom of the image area by getting the max top position from versionLabelPositions
+        const maxLabelTop = Math.max(...imageLayout.versionLabelPositions.map(pos => pos.top));
+        const datePillHeight = 32; // Height of date pill from line 1215
+        const spacing = 15; // Space between date pills and link
+        const linkTop = includeDateChip
+          ? maxLabelTop + datePillHeight + spacing
+          : maxLabelTop + spacing;
+
+        const linkLeft = 20; // Left padding
+        const linkWidth = designWidth - 40; // Width with padding on both sides
+
+        // Create richtext range with clickable hyperlink
+        const linkRange = createRichtextRange();
+        linkRange.appendText(linkUrl, {
+          link: linkUrl,
+          decoration: "underline",
+          color: companyLinkColor,
+          fontWeight: "normal",
+        });
+
+        // Set paragraph alignment to center
+        linkRange.formatParagraph({ index: 0, length: linkUrl.length }, { textAlign: "center" });
+
+        companyLinkElement = {
+          type: "richtext" as const,
+          range: linkRange,
+          top: linkTop,
+          left: linkLeft,
+          width: linkWidth,
+          fontSize: companyLinkFontSize,
         };
       }
 
@@ -2128,19 +2209,28 @@ export function App() {
         textAlign: "end" as const,
       };
 
-      // Create asset slug text element - positioned to the right of company logo
+      // Create asset slug and category text elements - stacked next to logo
       let assetSlugElement: any = null;
+      let categoryElement: any = null;
+
       if (asset.slug && asset.slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.slug);
-        const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width (25% bigger than previous)
-        const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap (using settings)
+        const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width
+        const categoryFontSizeCalc = Math.max(16, Math.min(22, designWidth * 0.020)); // Slightly smaller than slug
+
+        const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap
         const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
-        const slugTop = logoOffsetY + (logoSize / 2) - (slugFontSize / 2); // Vertically centered with company logo
+
+        // Calculate vertical positioning to center both elements with logo
+        const slugHeight = slugFontSize * 1.2; // Approximate line height
+        const categoryHeight = (includeCategoryLabel && asset.company_category) ? categoryFontSizeCalc * 1.2 : 0;
+        const totalTextHeight = slugHeight + categoryHeight + ((includeCategoryLabel && asset.company_category) ? 2 : 0); // 2px gap between slug and category
+        const textTop = logoOffsetY + (logoSize - totalTextHeight) / 2;
 
         assetSlugElement = {
           type: "text" as const,
           children: [formattedSlug],
-          top: slugTop,
+          top: textTop,
           left: slugLeft,
           width: slugWidth,
           fontSize: slugFontSize,
@@ -2148,6 +2238,22 @@ export function App() {
           color: "#E4E4E4",
           textAlign: "start" as const,
         };
+
+        // Create category element below slug if category exists
+        if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
+          categoryElement = {
+            type: "text" as const,
+            children: [asset.company_category.trim()],
+            top: textTop + slugHeight + 2, // 2px gap below slug
+            left: slugLeft,
+            width: slugWidth,
+            fontSize: categoryFontSizeCalc,
+            fontWeight: "normal" as const,
+            fontStyle: "italic" as const,
+            color: categoryColor,
+            textAlign: "start" as const,
+          };
+        }
       }
 
       // Helper function to add element with retry logic
@@ -2310,6 +2416,15 @@ export function App() {
           }
         }
 
+        // Add company link text element (if available)
+        if (companyLinkElement) {
+          try {
+            await addElementWithRetry(companyLinkElement, 'company link text');
+          } catch (err) {
+            // Continue without company link text if it fails
+          }
+        }
+
       } else if (features.isSupported(addElementAtCursor)) {
         // Add all image elements
         for (const imageElement of imageElements) {
@@ -2350,6 +2465,10 @@ export function App() {
           for (const pill of datePillElements) {
             await addElementAtCursor(pill);
           }
+        }
+        // Add company link text element (if available)
+        if (companyLinkElement) {
+          await addElementAtCursor(companyLinkElement);
         }
       } else {
         throw new Error("Image insertion not supported");
@@ -3052,6 +3171,90 @@ export function App() {
                 </Box>
                 <Text size="small" tone="tertiary">
                   Category position: {categoryX}px from left, {categoryY}px from top, {categoryAlign} aligned, {categoryFontSize}px font
+                </Text>
+              </Rows>
+            </div>
+          </Box>
+
+          {/* Company Link Settings */}
+          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Company Link Display</Text>
+                <Box>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={includeCompanyLink}
+                      onChange={(e) => setIncludeCompanyLink(e.target.checked)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <Text size="small">Show Company Link</Text>
+                  </label>
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Link Y Position (px from top)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={companyLinkY}
+                    onChange={(e) => setCompanyLinkY(Number(e.target.value) || 850)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="0"
+                    max="1500"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Font Size (px)</Text>
+                  </div>
+                  <input
+                    type="number"
+                    value={companyLinkFontSize}
+                    onChange={(e) => setCompanyLinkFontSize(Number(e.target.value) || 18)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                    min="8"
+                    max="100"
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Text Color</Text>
+                  </div>
+                  <input
+                    type="color"
+                    value={companyLinkColor}
+                    onChange={(e) => setCompanyLinkColor(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '4px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      height: '40px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Link positioned at {companyLinkY}px from top, centered, {companyLinkFontSize}px font
                 </Text>
               </Rows>
             </div>

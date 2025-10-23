@@ -9,7 +9,7 @@ interface SizeSelectionProps {
   setCustomWidth: (width: number) => void;
   customHeight: number;
   setCustomHeight: (height: number) => void;
-  onContinue: () => void;
+  onContinue: (preset?: SizePreset) => void;
 }
 
 export function SizeSelection({
@@ -42,7 +42,7 @@ export function SizeSelection({
               <div
                 onClick={() => {
                   setSelectedPreset('1:1');
-                  onContinue();
+                  onContinue('1:1');
                 }}
                 style={{
                   width: '100%',
@@ -65,7 +65,7 @@ export function SizeSelection({
               <div
                 onClick={() => {
                   setSelectedPreset('16:9');
-                  onContinue();
+                  onContinue('16:9');
                 }}
                 style={{
                   width: '100%',
@@ -88,7 +88,7 @@ export function SizeSelection({
               <div
                 onClick={() => {
                   setSelectedPreset('816x1056');
-                  onContinue();
+                  onContinue('816x1056');
                 }}
                 style={{
                   width: '100%',
