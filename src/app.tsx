@@ -1,5 +1,5 @@
 import { Box, Rows, Grid, Text, LoadingIndicator, Button } from "@canva/app-ui-kit";
-import { addElementAtPoint, addElementAtCursor, setCurrentPageBackground, createRichtextRange } from "@canva/design";
+import { addElementAtPoint, addElementAtCursor, setCurrentPageBackground, createRichtextRange, addPage } from "@canva/design";
 import { upload } from "@canva/asset";
 import { features } from "@canva/platform";
 import "@canva/app-ui-kit/styles.css";
@@ -38,7 +38,13 @@ export function App() {
   const [subheaderX, setSubheaderX] = useState(400); // Subheader X position from left (where category used to be)
   const [subheaderY, setSubheaderY] = useState(105); // Subheader Y position from top (where category used to be)
   const [subheaderAlign, setSubheaderAlign] = useState<'start' | 'center' | 'end'>('start'); // Subheader text alignment (left-aligned like category was)
+  const [includeSubheader, setIncludeSubheader] = useState(true); // Toggle for subheader display
   const [includeCategoryLabel, setIncludeCategoryLabel] = useState(true); // Toggle for category display
+  // Configurable labels above header/subheader/category (displayed in #D3DF66 color)
+  const [headerLabel, setHeaderLabel] = useState('Metric Name'); // Label text above header
+  const [subheaderLabel, setSubheaderLabel] = useState('Modality'); // Label text above subheader
+  const [categoryLabel, setCategoryLabel] = useState('Category'); // Label text above category
+  const [labelColor, setLabelColor] = useState('#D3DF66'); // Color for all labels
   const [categoryX, setCategoryX] = useState(400); // Category X position from left
   const [categoryY, setCategoryY] = useState(105); // Category Y position from top
   const [categoryAlign, setCategoryAlign] = useState<'start' | 'center' | 'end'>('start'); // Category text alignment (left-aligned)
@@ -57,6 +63,15 @@ export function App() {
   const [selectedPreset, setSelectedPreset] = useState<SizePreset>('1:1');
   const [customWidth, setCustomWidth] = useState(1080);
   const [customHeight, setCustomHeight] = useState(1080);
+
+  // Bulk insert state
+  const [showBulkInsertModal, setShowBulkInsertModal] = useState(false);
+  const [bulkInsertStep, setBulkInsertStep] = useState<'count' | 'sort' | 'processing'>('count');
+  const [bulkInsertCount, setBulkInsertCount] = useState('');
+  const [bulkInsertSort, setBulkInsertSort] = useState<'updated' | 'category' | 'header'>('updated');
+  const [includeTitleSlides, setIncludeTitleSlides] = useState(false);
+  const [includeIndexSlides, setIncludeIndexSlides] = useState(false);
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
 
   // Load collections on app start
   useEffect(() => {
@@ -1097,6 +1112,25 @@ export function App() {
         }
       }
 
+      // Create header label element (smaller text above header in #D3DF66)
+      let headerLabelElement: any = null;
+      if (headerLabel && headerLabel.trim() && asset.header && asset.header.trim()) {
+        const labelFontSize = Math.max(14, Math.min(24, designWidth * 0.022)); // Slightly smaller than header
+        const labelTop = headerY - labelFontSize - 8; // Position above header
+
+        headerLabelElement = {
+          type: "text" as const,
+          children: [headerLabel.trim()],
+          top: labelTop,
+          left: headerX,
+          width: designWidth - headerX - 20,
+          fontSize: labelFontSize,
+          fontWeight: "normal" as const,
+          color: labelColor,
+          textAlign: headerAlign,
+        };
+      }
+
       // Create header text element - responsive to design width
       let headerElement: any = null;
       if (asset.header && asset.header.trim()) {
@@ -1122,9 +1156,28 @@ export function App() {
         };
       }
 
+      // Create subheader label element (smaller text above subheader in #D3DF66)
+      let subheaderLabelElement: any = null;
+      if (includeSubheader && subheaderLabel && subheaderLabel.trim() && asset.subheader && asset.subheader.trim()) {
+        const labelFontSize = Math.max(14, Math.min(24, designWidth * 0.022)); // Slightly smaller than subheader
+        const labelTop = subheaderY - labelFontSize - 8; // Position above subheader
+
+        subheaderLabelElement = {
+          type: "text" as const,
+          children: [subheaderLabel.trim()],
+          top: labelTop,
+          left: subheaderX,
+          width: designWidth - subheaderX - 20,
+          fontSize: labelFontSize,
+          fontWeight: "normal" as const,
+          color: labelColor,
+          textAlign: subheaderAlign,
+        };
+      }
+
       // Create subheader text element - responsive to design width
       let subheaderElement: any = null;
-      if (asset.subheader && asset.subheader.trim()) {
+      if (includeSubheader && asset.subheader && asset.subheader.trim()) {
         const subheaderPadding = 20;
         // Use X, Y position and alignment from settings
         const subheaderLeft = subheaderX;
@@ -1263,19 +1316,22 @@ export function App() {
       // Create asset slug and category text elements - stacked next to logo
       let assetSlugElement: any = null;
       let categoryElement: any = null;
+      let categoryLabelElement: any = null;
 
       if (asset.slug && asset.slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.slug);
         const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width
         const categoryFontSizeCalc = Math.max(16, Math.min(22, designWidth * 0.020)); // Slightly smaller than slug
+        const categoryLabelFontSize = Math.max(12, Math.min(18, designWidth * 0.017)); // Slightly smaller for label
 
         const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap
         const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
 
         // Calculate vertical positioning to center both elements with logo
         const slugHeight = slugFontSize * 1.2; // Approximate line height
+        const categoryLabelHeight = (includeCategoryLabel && asset.company_category && categoryLabel) ? categoryLabelFontSize * 1.2 : 0;
         const categoryHeight = (includeCategoryLabel && asset.company_category) ? categoryFontSizeCalc * 1.2 : 0;
-        const totalTextHeight = slugHeight + categoryHeight + ((includeCategoryLabel && asset.company_category) ? 2 : 0); // 2px gap between slug and category
+        const totalTextHeight = slugHeight + categoryLabelHeight + categoryHeight + ((includeCategoryLabel && asset.company_category) ? 4 : 0); // gaps between elements
         const textTop = logoOffsetY + (logoSize - totalTextHeight) / 2;
 
         assetSlugElement = {
@@ -1290,12 +1346,30 @@ export function App() {
           textAlign: "start" as const,
         };
 
-        // Create category element below slug if category exists
+        // Create category label element (smaller text above category in #D3DF66)
+        if (includeCategoryLabel && asset.company_category && asset.company_category.trim() && categoryLabel && categoryLabel.trim()) {
+          categoryLabelElement = {
+            type: "text" as const,
+            children: [categoryLabel.trim()],
+            top: textTop + slugHeight + 2, // 2px gap below slug
+            left: slugLeft,
+            width: slugWidth,
+            fontSize: categoryLabelFontSize,
+            fontWeight: "normal" as const,
+            color: labelColor,
+            textAlign: "start" as const,
+          };
+        }
+
+        // Create category element below slug/label if category exists
         if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
+          const categoryTop = categoryLabelElement
+            ? textTop + slugHeight + 2 + categoryLabelFontSize * 1.2 + 2 // After label
+            : textTop + slugHeight + 2; // After slug
           categoryElement = {
             type: "text" as const,
             children: [asset.company_category.trim()],
-            top: textTop + slugHeight + 2, // 2px gap below slug
+            top: categoryTop,
             left: slugLeft,
             width: slugWidth,
             fontSize: categoryFontSizeCalc,
@@ -1420,6 +1494,15 @@ export function App() {
           }
         }
 
+        // Add header label element (if available)
+        if (headerLabelElement) {
+          try {
+            await addElementWithRetry(headerLabelElement, 'header label');
+          } catch (err) {
+            // Continue without header label if it fails
+          }
+        }
+
         // Add header text element (if available)
         if (headerElement) {
           try {
@@ -1429,12 +1512,30 @@ export function App() {
           }
         }
 
+        // Add subheader label element (if available)
+        if (subheaderLabelElement) {
+          try {
+            await addElementWithRetry(subheaderLabelElement, 'subheader label');
+          } catch (err) {
+            // Continue without subheader label if it fails
+          }
+        }
+
         // Add subheader text element (if available)
         if (subheaderElement) {
           try {
             await addElementWithRetry(subheaderElement, 'subheader text');
           } catch (err) {
             // Continue without subheader text if it fails
+          }
+        }
+
+        // Add category label element (if available)
+        if (categoryLabelElement) {
+          try {
+            await addElementWithRetry(categoryLabelElement, 'category label');
+          } catch (err) {
+            // Continue without category label if it fails
           }
         }
 
@@ -1499,11 +1600,20 @@ export function App() {
         if (includeCuratedBy) {
           await addElementAtCursor(curatedByElement);
         }
+        if (headerLabelElement) {
+          await addElementAtCursor(headerLabelElement);
+        }
         if (headerElement) {
           await addElementAtCursor(headerElement);
         }
+        if (subheaderLabelElement) {
+          await addElementAtCursor(subheaderLabelElement);
+        }
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
+        }
+        if (categoryLabelElement) {
+          await addElementAtCursor(categoryLabelElement);
         }
         if (categoryElement) {
           await addElementAtCursor(categoryElement);
@@ -1561,6 +1671,425 @@ export function App() {
           return updated;
         });
       }, 5000);
+    }
+  };
+
+  const insertAssetWithNewPage = async (asset: Asset) => {
+    try {
+      setError(null);
+
+      // Set upload progress
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-newpage`, {
+        status: 'uploading',
+        progress: 0,
+        message: 'Creating new page...'
+      }));
+
+      // Add a new page
+      await addPage({
+        title: asset.name || 'New Page',
+        background: addBackground ? {
+          color: '#191a1b'
+        } : undefined
+      });
+
+      // Add delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-newpage`, {
+        status: 'uploading',
+        progress: 10,
+        message: 'New page created, adding background...'
+      }));
+
+      // Insert background image at position (0, 0)
+      const backgroundImageUrl = 'https://res.cloudinary.com/dd6dkaan9/image/upload/v1765338464/Pricing_Example_slide_d7ibnr.png';
+
+      try {
+        // Upload the background image to Canva using the same upload pattern
+        const backgroundUploadResult = await uploadWithRetry([backgroundImageUrl], {
+          type: "image",
+          aiDisclosure: "none",
+        });
+
+        // Create the background image element at position (0, 0)
+        const backgroundImageElement = {
+          type: "image" as const,
+          ref: backgroundUploadResult.ref,
+          altText: { text: "Background Template", decorative: true },
+          top: 0,
+          left: 0,
+          width: designWidth,
+          height: designHeight,
+        };
+
+        // Add the background image to the page as the first layer
+        if (features.isSupported(addElementAtPoint)) {
+          await addElementAtPoint(backgroundImageElement);
+        } else if (features.isSupported(addElementAtCursor)) {
+          await addElementAtCursor(backgroundImageElement);
+        } else {
+          throw new Error("Image insertion not supported");
+        }
+
+        setUploadProgress(prev => new Map(prev).set(`${asset.id}-newpage`, {
+          status: 'uploading',
+          progress: 20,
+          message: 'Background added, preparing asset upload...'
+        }));
+      } catch (bgError) {
+        console.error('Error adding background image:', bgError);
+        // Continue with asset insertion even if background fails
+        setUploadProgress(prev => new Map(prev).set(`${asset.id}-newpage`, {
+          status: 'uploading',
+          progress: 15,
+          message: 'Background skipped, preparing asset upload...'
+        }));
+      }
+
+      // Now insert the asset normally (which will go into the new page)
+      await insertAsset(asset);
+
+      // Clear the newpage progress indicator
+      setUploadProgress(prev => {
+        const updated = new Map(prev);
+        updated.delete(`${asset.id}-newpage`);
+        return updated;
+      });
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to add page and insert asset';
+      setError(errorMessage);
+      console.error('Error adding page and inserting asset:', error);
+
+      // Show error in progress
+      setUploadProgress(prev => new Map(prev).set(`${asset.id}-newpage`, {
+        status: 'failed',
+        progress: 0,
+        message: errorMessage
+      }));
+
+      // Clear progress after 5 seconds
+      setTimeout(() => {
+        setUploadProgress(prev => {
+          const updated = new Map(prev);
+          updated.delete(`${asset.id}-newpage`);
+          return updated;
+        });
+      }, 5000);
+    }
+  };
+
+  const createTitleSlide = async (categoryName: string) => {
+    try {
+      // Add a new page for the title slide
+      await addPage({
+        title: `${categoryName} - Title Slide`,
+        background: {
+          color: '#191a1b'
+        }
+      });
+
+      // Add delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Insert title slide background image at position (0, 0)
+      const titleSlideBackgroundUrl = 'https://res.cloudinary.com/dd6dkaan9/image/upload/v1761670032/100_Pricing_Metrics_5_akxzel.png';
+
+      const backgroundUploadResult = await uploadWithRetry([titleSlideBackgroundUrl], {
+        type: "image",
+        aiDisclosure: "none",
+      });
+
+      const backgroundImageElement = {
+        type: "image" as const,
+        ref: backgroundUploadResult.ref,
+        altText: { text: "Title Slide Background", decorative: true },
+        top: 0,
+        left: 0,
+        width: designWidth,
+        height: designHeight,
+      };
+
+      if (features.isSupported(addElementAtPoint)) {
+        await addElementAtPoint(backgroundImageElement);
+      } else if (features.isSupported(addElementAtCursor)) {
+        await addElementAtCursor(backgroundImageElement);
+      } else {
+        throw new Error("Image insertion not supported");
+      }
+
+      // Add category text in the middle of the screen
+      const categoryTextElement = {
+        type: "text" as const,
+        children: [categoryName],
+        top: (designHeight / 2) - 40,
+        left: designWidth * 0.1,
+        width: designWidth * 0.8,
+        fontSize: 80,
+        fontWeight: "bold" as const,
+        color: "#ffffff",
+        textAlign: "center" as const,
+      };
+
+      if (features.isSupported(addElementAtPoint)) {
+        await addElementAtPoint(categoryTextElement);
+      } else if (features.isSupported(addElementAtCursor)) {
+        await addElementAtCursor(categoryTextElement);
+      } else {
+        throw new Error("Text insertion not supported");
+      }
+
+    } catch (error) {
+      console.error('Error creating title slide:', error);
+      throw error;
+    }
+  };
+
+  const createIndexSlide = async (categoryName: string, assets: Asset[]) => {
+    try {
+      // Add a new page for the index slide
+      await addPage({
+        title: `${categoryName} - Index`,
+        background: {
+          color: '#191a1b'
+        }
+      });
+
+      // Add delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Insert index slide background image at position (0, 0)
+      const indexSlideBackgroundUrl = 'https://res.cloudinary.com/dd6dkaan9/image/upload/v1761670734/100_Pricing_Metrics_6_no2nar.png';
+
+      const backgroundUploadResult = await uploadWithRetry([indexSlideBackgroundUrl], {
+        type: "image",
+        aiDisclosure: "none",
+      });
+
+      const backgroundImageElement = {
+        type: "image" as const,
+        ref: backgroundUploadResult.ref,
+        altText: { text: "Index Slide Background", decorative: true },
+        top: 0,
+        left: 0,
+        width: designWidth,
+        height: designHeight,
+      };
+
+      if (features.isSupported(addElementAtPoint)) {
+        await addElementAtPoint(backgroundImageElement);
+      } else if (features.isSupported(addElementAtCursor)) {
+        await addElementAtCursor(backgroundImageElement);
+      } else {
+        throw new Error("Image insertion not supported");
+      }
+
+      // Calculate spacing for index items
+      const itemHeight = 90; // Increased spacing between lines (50% bigger)
+      const startY = (designHeight - (assets.length * itemHeight)) / 2;
+      const leftMargin = designWidth * 0.05;
+      const logoSize = 45; // 50% bigger than 30
+      const fontSize = 27; // 50% bigger than 18
+      const spacing = 15; // 50% bigger than 10
+
+      // Add each asset as a line item in the index
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        const currentY = startY + (i * itemHeight);
+        let currentX = leftMargin;
+
+        // Upload and add logo if available
+        if (asset.company_logo_url && asset.company_logo_url.trim()) {
+          try {
+            // Ensure HTTPS URL for Canva upload
+            const logoUrl = asset.company_logo_url.replace(/^http:\/\//, 'https://');
+
+            // Detect MIME type from file extension
+            const mimeType = logoUrl.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+
+            const logoUploadResult = await upload({
+              type: "image",
+              thumbnailUrl: logoUrl,
+              url: logoUrl,
+              mimeType: mimeType,
+              aiDisclosure: "none",
+            });
+
+            const logoElement = {
+              type: "image" as const,
+              ref: logoUploadResult.ref,
+              altText: { text: `${asset.company_name} logo`, decorative: true },
+              top: currentY,
+              left: currentX,
+              width: logoSize,
+              height: logoSize,
+            };
+
+            if (features.isSupported(addElementAtPoint)) {
+              await addElementAtPoint(logoElement);
+            } else if (features.isSupported(addElementAtCursor)) {
+              await addElementAtCursor(logoElement);
+            }
+
+            currentX += logoSize + spacing;
+          } catch (logoError) {
+            console.error('Error adding logo to index:', logoError);
+            // Continue without logo
+            currentX += logoSize + spacing;
+          }
+        } else {
+          currentX += logoSize + spacing;
+        }
+
+        // Build the text content: slug, header, subheader
+        const textParts: string[] = [];
+        if (asset.slug) textParts.push(asset.slug);
+        if (asset.header) textParts.push(asset.header);
+        if (asset.subheader) textParts.push(asset.subheader);
+        const textContent = textParts.join(', ');
+
+        if (textContent) {
+          const textElement = {
+            type: "text" as const,
+            children: [textContent],
+            top: currentY + 8,
+            left: currentX,
+            width: designWidth - currentX - leftMargin,
+            fontSize: fontSize,
+            fontWeight: "normal" as const,
+            color: "#ffffff",
+            textAlign: "start" as const,
+          };
+
+          if (features.isSupported(addElementAtPoint)) {
+            await addElementAtPoint(textElement);
+          } else if (features.isSupported(addElementAtCursor)) {
+            await addElementAtCursor(textElement);
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('Error creating index slide:', error);
+      throw error;
+    }
+  };
+
+  const handleBulkInsert = () => {
+    // Open the modal
+    setBulkInsertCount('');
+    setBulkInsertStep('count');
+    setShowBulkInsertModal(true);
+  };
+
+  const executeBulkInsert = async () => {
+    try {
+      setBulkInsertStep('processing');
+
+      // Filter by favorites if enabled
+      let assetsToProcess = [...filteredAssets];
+      if (onlyFavorites) {
+        assetsToProcess = assetsToProcess.filter(a => a.is_favorited);
+      }
+
+      if (assetsToProcess.length === 0) {
+        setError(onlyFavorites ? 'No favorited assets found' : 'No assets found');
+        setBulkInsertStep('count');
+        return;
+      }
+
+      const count = bulkInsertCount.toLowerCase() === 'all' ? assetsToProcess.length : parseInt(bulkInsertCount);
+
+      if (isNaN(count) || count <= 0) {
+        setError('Please enter a valid number or "all"');
+        setBulkInsertStep('count');
+        return;
+      }
+
+      const actualCount = Math.min(count, assetsToProcess.length);
+
+      let sortedAssets = [...assetsToProcess];
+
+      if (bulkInsertSort === 'updated') {
+        // Sort by last updated (newest first)
+        sortedAssets.sort((a, b) => {
+          const dateA = new Date(a.updated_at || a.created_at || 0).getTime();
+          const dateB = new Date(b.updated_at || b.created_at || 0).getTime();
+          return dateB - dateA; // Newest first
+        });
+      } else if (bulkInsertSort === 'header') {
+        // Sort alphabetically by header
+        sortedAssets.sort((a, b) => {
+          const headerA = a.header || '';
+          const headerB = b.header || '';
+          return headerA.localeCompare(headerB);
+        });
+      } else {
+        // Sort by category
+        sortedAssets.sort((a, b) => {
+          const catA = a.company_category || '';
+          const catB = b.company_category || '';
+          return catA.localeCompare(catB);
+        });
+      }
+
+      // Take only the number of assets requested
+      const assetsToInsert = sortedAssets.slice(0, actualCount);
+
+      // Step 3: Insert each asset with new page
+      let lastCategory: string | null = null;
+
+      for (let i = 0; i < assetsToInsert.length; i++) {
+        const asset = assetsToInsert[i];
+
+        try {
+          // If title slides are enabled and sorting by category, create title slide before new category
+          if (includeTitleSlides && bulkInsertSort === 'category') {
+            const currentCategory = asset.company_category || 'Uncategorized';
+
+            // Create title slide if this is a new category
+            if (currentCategory !== lastCategory) {
+              await createTitleSlide(currentCategory);
+              lastCategory = currentCategory;
+
+              // Add a small delay after title slide
+              await new Promise(resolve => setTimeout(resolve, 1000));
+
+              // If index slides are also enabled, create index slide
+              if (includeIndexSlides) {
+                // Collect all assets in this category
+                const categoryAssets = assetsToInsert.filter(
+                  a => (a.company_category || 'Uncategorized') === currentCategory
+                );
+
+                await createIndexSlide(currentCategory, categoryAssets);
+
+                // Add a small delay after index slide
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            }
+          }
+
+          await insertAssetWithNewPage(asset);
+
+          // Add a small delay between insertions to avoid overwhelming the system
+          if (i < assetsToInsert.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (error) {
+          console.error(`Error inserting asset ${i + 1} (${asset.name}):`, error);
+          // Continue with next asset even if this one fails
+        }
+      }
+
+      setShowBulkInsertModal(false);
+      setBulkInsertStep('count');
+
+    } catch (error) {
+      console.error('Bulk insert error:', error);
+      setError('An error occurred during bulk insert. Please try again.');
+      setBulkInsertStep('count');
     }
   };
 
@@ -2046,6 +2575,25 @@ export function App() {
         }
       }
 
+      // Create header label element (smaller text above header in #D3DF66)
+      let headerLabelElement: any = null;
+      if (headerLabel && headerLabel.trim() && asset.header && asset.header.trim()) {
+        const labelFontSize = Math.max(14, Math.min(24, designWidth * 0.022)); // Slightly smaller than header
+        const labelTop = headerY - labelFontSize - 8; // Position above header
+
+        headerLabelElement = {
+          type: "text" as const,
+          children: [headerLabel.trim()],
+          top: labelTop,
+          left: headerX,
+          width: designWidth - headerX - 20,
+          fontSize: labelFontSize,
+          fontWeight: "normal" as const,
+          color: labelColor,
+          textAlign: headerAlign,
+        };
+      }
+
       // Create header text element - responsive to design width
       let headerElement: any = null;
       if (asset.header && asset.header.trim()) {
@@ -2071,9 +2619,28 @@ export function App() {
         };
       }
 
+      // Create subheader label element (smaller text above subheader in #D3DF66)
+      let subheaderLabelElement: any = null;
+      if (includeSubheader && subheaderLabel && subheaderLabel.trim() && asset.subheader && asset.subheader.trim()) {
+        const labelFontSize = Math.max(14, Math.min(24, designWidth * 0.022)); // Slightly smaller than subheader
+        const labelTop = subheaderY - labelFontSize - 8; // Position above subheader
+
+        subheaderLabelElement = {
+          type: "text" as const,
+          children: [subheaderLabel.trim()],
+          top: labelTop,
+          left: subheaderX,
+          width: designWidth - subheaderX - 20,
+          fontSize: labelFontSize,
+          fontWeight: "normal" as const,
+          color: labelColor,
+          textAlign: subheaderAlign,
+        };
+      }
+
       // Create subheader text element - responsive to design width
       let subheaderElement: any = null;
-      if (asset.subheader && asset.subheader.trim()) {
+      if (includeSubheader && asset.subheader && asset.subheader.trim()) {
         const subheaderPadding = 20;
         // Use X, Y position and alignment from settings
         const subheaderLeft = subheaderX;
@@ -2212,19 +2779,22 @@ export function App() {
       // Create asset slug and category text elements - stacked next to logo
       let assetSlugElement: any = null;
       let categoryElement: any = null;
+      let categoryLabelElement: any = null;
 
       if (asset.slug && asset.slug.trim()) {
         const formattedSlug = formatCompanySlug(asset.slug);
         const slugFontSize = Math.max(19, Math.min(26, designWidth * 0.024)); // 26px at 1080px width
         const categoryFontSizeCalc = Math.max(16, Math.min(22, designWidth * 0.020)); // Slightly smaller than slug
+        const categoryLabelFontSize = Math.max(12, Math.min(18, designWidth * 0.017)); // Slightly smaller for label
 
         const slugLeft = logoOffsetX + logoSize + 15; // After logo + gap
         const slugWidth = curatedByLeft - slugLeft - 20; // Space between slug and "curated by"
 
         // Calculate vertical positioning to center both elements with logo
         const slugHeight = slugFontSize * 1.2; // Approximate line height
+        const categoryLabelHeight = (includeCategoryLabel && asset.company_category && categoryLabel) ? categoryLabelFontSize * 1.2 : 0;
         const categoryHeight = (includeCategoryLabel && asset.company_category) ? categoryFontSizeCalc * 1.2 : 0;
-        const totalTextHeight = slugHeight + categoryHeight + ((includeCategoryLabel && asset.company_category) ? 2 : 0); // 2px gap between slug and category
+        const totalTextHeight = slugHeight + categoryLabelHeight + categoryHeight + ((includeCategoryLabel && asset.company_category) ? 4 : 0); // gaps between elements
         const textTop = logoOffsetY + (logoSize - totalTextHeight) / 2;
 
         assetSlugElement = {
@@ -2239,12 +2809,30 @@ export function App() {
           textAlign: "start" as const,
         };
 
-        // Create category element below slug if category exists
+        // Create category label element (smaller text above category in #D3DF66)
+        if (includeCategoryLabel && asset.company_category && asset.company_category.trim() && categoryLabel && categoryLabel.trim()) {
+          categoryLabelElement = {
+            type: "text" as const,
+            children: [categoryLabel.trim()],
+            top: textTop + slugHeight + 2, // 2px gap below slug
+            left: slugLeft,
+            width: slugWidth,
+            fontSize: categoryLabelFontSize,
+            fontWeight: "normal" as const,
+            color: labelColor,
+            textAlign: "start" as const,
+          };
+        }
+
+        // Create category element below slug/label if category exists
         if (includeCategoryLabel && asset.company_category && asset.company_category.trim()) {
+          const categoryTop = categoryLabelElement
+            ? textTop + slugHeight + 2 + categoryLabelFontSize * 1.2 + 2 // After label
+            : textTop + slugHeight + 2; // After slug
           categoryElement = {
             type: "text" as const,
             children: [asset.company_category.trim()],
-            top: textTop + slugHeight + 2, // 2px gap below slug
+            top: categoryTop,
             left: slugLeft,
             width: slugWidth,
             fontSize: categoryFontSizeCalc,
@@ -2369,6 +2957,15 @@ export function App() {
           }
         }
 
+        // Add header label element (if available)
+        if (headerLabelElement) {
+          try {
+            await addElementWithRetry(headerLabelElement, 'header label');
+          } catch (err) {
+            // Continue without header label if it fails
+          }
+        }
+
         // Add header text element (if available)
         if (headerElement) {
           try {
@@ -2378,12 +2975,30 @@ export function App() {
           }
         }
 
+        // Add subheader label element (if available)
+        if (subheaderLabelElement) {
+          try {
+            await addElementWithRetry(subheaderLabelElement, 'subheader label');
+          } catch (err) {
+            // Continue without subheader label if it fails
+          }
+        }
+
         // Add subheader text element (if available)
         if (subheaderElement) {
           try {
             await addElementWithRetry(subheaderElement, 'subheader text');
           } catch (err) {
             // Continue without subheader text if it fails
+          }
+        }
+
+        // Add category label element (if available)
+        if (categoryLabelElement) {
+          try {
+            await addElementWithRetry(categoryLabelElement, 'category label');
+          } catch (err) {
+            // Continue without category label if it fails
           }
         }
 
@@ -2448,11 +3063,20 @@ export function App() {
         if (includeCuratedBy) {
           await addElementAtCursor(curatedByElement);
         }
+        if (headerLabelElement) {
+          await addElementAtCursor(headerLabelElement);
+        }
         if (headerElement) {
           await addElementAtCursor(headerElement);
         }
+        if (subheaderLabelElement) {
+          await addElementAtCursor(subheaderLabelElement);
+        }
         if (subheaderElement) {
           await addElementAtCursor(subheaderElement);
+        }
+        if (categoryLabelElement) {
+          await addElementAtCursor(categoryLabelElement);
         }
         if (categoryElement) {
           await addElementAtCursor(categoryElement);
@@ -2564,7 +3188,8 @@ export function App() {
               setSlugFilter={setSlugFilter}
               uploadProgress={uploadProgress}
               onInsertAsset={insertAsset}
-              onInsertOriginal={insertAssetOriginal}
+              onInsertOriginal={insertAssetWithNewPage}
+              onBulkInsert={handleBulkInsert}
               getThumbnailUrl={getThumbnailUrl}
             />
           ) : (
@@ -2854,6 +3479,95 @@ export function App() {
             </div>
           </Box>
 
+          {/* Section Labels Settings */}
+          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+            <div style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '16px'
+            }}>
+              <Rows spacing="2u">
+                <Text size="medium">Section Labels (above header/subheader/category)</Text>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Header Label Text</Text>
+                  </div>
+                  <input
+                    type="text"
+                    value={headerLabel}
+                    onChange={(e) => setHeaderLabel(e.target.value)}
+                    placeholder="e.g., Metric Name"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Subheader Label Text</Text>
+                  </div>
+                  <input
+                    type="text"
+                    value={subheaderLabel}
+                    onChange={(e) => setSubheaderLabel(e.target.value)}
+                    placeholder="e.g., Modality"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Category Label Text</Text>
+                  </div>
+                  <input
+                    type="text"
+                    value={categoryLabel}
+                    onChange={(e) => setCategoryLabel(e.target.value)}
+                    placeholder="e.g., Category"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <div style={{ marginBottom: '4px' }}>
+                    <Text size="small" tone="secondary">Label Color</Text>
+                  </div>
+                  <input
+                    type="color"
+                    value={labelColor}
+                    onChange={(e) => setLabelColor(e.target.value)}
+                    style={{
+                      width: '60px',
+                      height: '32px',
+                      padding: '2px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </Box>
+                <Text size="small" tone="tertiary">
+                  Labels appear in {labelColor} color above each section. Leave empty to hide a label.
+                </Text>
+              </Rows>
+            </div>
+          </Box>
+
           {/* Header & Subheader Color Settings */}
           <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
             <div style={{ marginBottom: '8px' }}>
@@ -2986,6 +3700,26 @@ export function App() {
             }}>
               <Rows spacing="2u">
                 <Text size="medium">Subheader Position & Alignment</Text>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={includeSubheader}
+                      onChange={(e) => setIncludeSubheader(e.target.checked)}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                    <Text size="small">Show subheader</Text>
+                  </label>
+                </Box>
                 <Box>
                   <div style={{ marginBottom: '4px' }}>
                     <Text size="small" tone="secondary">Subheader X Position (px from left)</Text>
@@ -3344,6 +4078,271 @@ export function App() {
         {/* Tab Content */}
         {renderTabContent()}
       </Rows>
+
+      {/* Bulk Insert Modal */}
+      {showBulkInsertModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '12px',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '90%',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
+          }}>
+            {bulkInsertStep === 'count' && (
+              <Rows spacing="2u">
+                <Text size="large">Bulk Insert Assets</Text>
+                <Box>
+                  <div style={{ marginBottom: '8px' }}>
+                    <Text size="small" tone="secondary">
+                      How many assets would you like to insert?
+                    </Text>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder='Enter a number or "all"'
+                    value={bulkInsertCount}
+                    onChange={(e) => setBulkInsertCount(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      outline: 'none'
+                    }}
+                  />
+                </Box>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px',
+                    backgroundColor: onlyFavorites ? '#fef3c7' : '#f8fafc',
+                    border: onlyFavorites ? '2px solid #f59e0b' : '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={onlyFavorites}
+                      onChange={(e) => setOnlyFavorites(e.target.checked)}
+                      style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                    />
+                    <div>
+                      <Text size="medium">Favorites Only</Text>
+                      <Text size="small" tone="secondary">Only insert favorited assets</Text>
+                    </div>
+                  </label>
+                </Box>
+                <Grid columns={2} spacing="1u">
+                  <Button
+                    variant="tertiary"
+                    onClick={() => {
+                      setShowBulkInsertModal(false);
+                      setBulkInsertStep('count');
+                      setBulkInsertCount('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => setBulkInsertStep('sort')}
+                    disabled={!bulkInsertCount.trim()}
+                  >
+                    Next
+                  </Button>
+                </Grid>
+              </Rows>
+            )}
+
+            {bulkInsertStep === 'sort' && (
+              <Rows spacing="2u">
+                <Text size="large">Select Sort Order</Text>
+                <Box>
+                  <Text size="small" tone="secondary">
+                    Choose how to sort the assets before inserting
+                  </Text>
+                </Box>
+                <Box>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px',
+                    border: bulkInsertSort === 'updated' ? '2px solid #2563eb' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    backgroundColor: bulkInsertSort === 'updated' ? '#eff6ff' : 'transparent',
+                    marginBottom: '8px'
+                  }}>
+                    <input
+                      type="radio"
+                      name="sortOrder"
+                      value="updated"
+                      checked={bulkInsertSort === 'updated'}
+                      onChange={(e) => setBulkInsertSort(e.target.value as 'updated' | 'category' | 'header')}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <div>
+                      <Text size="medium">Last Updated</Text>
+                      <Text size="small" tone="secondary">Newest first</Text>
+                    </div>
+                  </label>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px',
+                    border: bulkInsertSort === 'header' ? '2px solid #2563eb' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    backgroundColor: bulkInsertSort === 'header' ? '#eff6ff' : 'transparent',
+                    marginBottom: '8px'
+                  }}>
+                    <input
+                      type="radio"
+                      name="sortOrder"
+                      value="header"
+                      checked={bulkInsertSort === 'header'}
+                      onChange={(e) => setBulkInsertSort(e.target.value as 'updated' | 'category' | 'header')}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <div>
+                      <Text size="medium">By Header (A-Z)</Text>
+                      <Text size="small" tone="secondary">Alphabetical by header text</Text>
+                    </div>
+                  </label>
+                  <label style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '12px',
+                    border: bulkInsertSort === 'category' ? '2px solid #2563eb' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    backgroundColor: bulkInsertSort === 'category' ? '#eff6ff' : 'transparent'
+                  }}>
+                    <input
+                      type="radio"
+                      name="sortOrder"
+                      value="category"
+                      checked={bulkInsertSort === 'category'}
+                      onChange={(e) => setBulkInsertSort(e.target.value as 'updated' | 'category' | 'header')}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <div>
+                      <Text size="medium">By Category</Text>
+                      <Text size="small" tone="secondary">Alphabetical order</Text>
+                    </div>
+                  </label>
+                </Box>
+                {bulkInsertSort === 'category' && (
+                  <>
+                    <Box>
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '12px',
+                        backgroundColor: '#f8fafc',
+                        borderRadius: '8px',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={includeTitleSlides}
+                          onChange={(e) => setIncludeTitleSlides(e.target.checked)}
+                          style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                        />
+                        <div>
+                          <Text size="medium">Include Title Slides</Text>
+                          <Text size="small" tone="secondary">Add a title slide before each category</Text>
+                        </div>
+                      </label>
+                    </Box>
+                    {includeTitleSlides && (
+                      <Box>
+                        <label style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          padding: '12px',
+                          paddingLeft: '40px',
+                          backgroundColor: '#f0f4f8',
+                          borderRadius: '8px',
+                          cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={includeIndexSlides}
+                            onChange={(e) => setIncludeIndexSlides(e.target.checked)}
+                            style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                          />
+                          <div>
+                            <Text size="medium">Include Index Slides</Text>
+                            <Text size="small" tone="secondary">Add an index after each title slide</Text>
+                          </div>
+                        </label>
+                      </Box>
+                    )}
+                  </>
+                )}
+                <Grid columns={2} spacing="1u">
+                  <Button
+                    variant="tertiary"
+                    onClick={() => setBulkInsertStep('count')}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={executeBulkInsert}
+                  >
+                    Start Insert
+                  </Button>
+                </Grid>
+              </Rows>
+            )}
+
+            {bulkInsertStep === 'processing' && (
+              <Rows spacing="3u">
+                <Text size="large">Inserting Assets...</Text>
+                <Box paddingY="3u">
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{
+                      display: 'inline-block',
+                      width: '40px',
+                      height: '40px',
+                      border: '4px solid #e5e7eb',
+                      borderTop: '4px solid #2563eb',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                  </div>
+                </Box>
+                <Text size="small" tone="secondary" align="center">
+                  Please wait while we add your assets to the design...
+                </Text>
+              </Rows>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Box, Text } from "@canva/app-ui-kit";
+import { Box, Text, Button } from "@canva/app-ui-kit";
 import { AssetCard } from "./AssetCard";
 import { Asset, UploadProgress } from "../types";
 
@@ -10,6 +10,7 @@ interface AssetGridProps {
   uploadProgress: Map<string, UploadProgress>;
   onInsertAsset: (asset: Asset) => void;
   onInsertOriginal: (asset: Asset) => void;
+  onBulkInsert: () => void;
   getThumbnailUrl: (asset: Asset) => string | null;
 }
 
@@ -21,6 +22,7 @@ export function AssetGrid({
   uploadProgress,
   onInsertAsset,
   onInsertOriginal,
+  onBulkInsert,
   getThumbnailUrl
 }: AssetGridProps) {
   if (assets.length === 0) {
@@ -38,6 +40,16 @@ export function AssetGrid({
 
   return (
     <Box paddingX="4u" paddingY="3u">
+      {/* Bulk Insert Button */}
+      <Box paddingBottom="2u">
+        <Button
+          variant="primary"
+          onClick={onBulkInsert}
+        >
+          Bulk Insert
+        </Button>
+      </Box>
+
       {/* Slug Filter Bar */}
       <Box paddingBottom="3u">
         <div style={{ marginBottom: '8px' }}>

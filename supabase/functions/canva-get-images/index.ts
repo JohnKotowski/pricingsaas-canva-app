@@ -306,6 +306,7 @@ serve(async (req: Request) => {
           secondary_company_logo_url: String((asset.secondary_pages as any)?.companies?.logo_url || ''),
           secondary_company_slug: String((asset.secondary_pages as any)?.companies?.slug || ''),
           secondary_company_category: String((asset.secondary_pages as any)?.companies?.category || ''),
+          is_favorited: Boolean(asset.is_favorited) || false,
           width: Number(asset.width) || undefined,
           height: Number(asset.height) || undefined,
           contentType: String(asset.content_type || asset.mime_type || 'image/jpeg'),

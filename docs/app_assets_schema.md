@@ -27,6 +27,7 @@ This table stores asset information for pricing page analysis applications, supp
 | `secondary_viewport_state` | jsonb | YES | - | Secondary viewport state |
 | `secondary_original_url` | text | YES | - | Secondary original image URL |
 | `secondary_cropped_url` | text | YES | - | Secondary cropped image URL |
+| `is_favorited` | boolean | YES | false | Whether the asset is marked as a favorite |
 
 | `canva_asset_id` | character varying(255) | YES | - | Canva asset identifier | -- DO NO USE
 | `primary_image` | text | YES | - | Primary image URL | -- DO NO USE

@@ -21,6 +21,7 @@ export interface Asset {
   comparison_mode?: string;
   secondary_company_logo_url?: string;
   secondary_company_slug?: string;
+  is_favorited?: boolean;
 }
 
 export interface Collection {

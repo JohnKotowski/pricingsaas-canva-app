@@ -168,7 +168,7 @@ export function AssetCard({
           {(progress || progressOriginal) ? (progressOriginal || progress)?.message || 'Processing...' : 'Click thumbnail to insert'}
         </Text>
 
-        {/* Original format button */}
+        {/* Add Page and Insert button */}
         {!isUploading && (
           <div style={{ marginTop: '12px' }}>
             <Button
@@ -179,7 +179,7 @@ export function AssetCard({
               }}
               disabled={isUploading}
             >
-              Insert Original (JPG)
+              Add Page and Insert
             </Button>
           </div>
         )}
