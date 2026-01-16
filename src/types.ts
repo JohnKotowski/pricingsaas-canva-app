@@ -7,6 +7,8 @@ export interface Asset {
   collection_name?: string;
   company_logo_url?: string;
   company_slug?: string;
+  company_name?: string;
+  company_category?: string;
   header?: string;
   subheader?: string;
   version?: string;
@@ -22,6 +24,8 @@ export interface Asset {
   secondary_company_logo_url?: string;
   secondary_company_slug?: string;
   is_favorited?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Collection {
@@ -30,7 +34,7 @@ export interface Collection {
   description?: string;
 }
 
-export type TabType = 'collections' | 'settings';
+export type TabType = 'reports' | 'collections' | 'settings';
 export type SizePreset = '1:1' | '16:9' | '816x1056' | 'custom';
 
 export interface UploadCache {
@@ -43,4 +47,20 @@ export interface UploadProgress {
   status: 'uploading' | 'verifying' | 'completed' | 'failed';
   progress: number;
   message: string;
+}
+
+export interface ReportElement {
+  id: string;
+  type: 'title' | 'text' | 'section_header' | 'graph' | 'list' | 'tiles' | 'tags' | 'example' | 'example_table';
+  content: string;
+}
+
+export interface Report {
+  id: string;
+  name: string;
+  description?: string;
+  elements: ReportElement[];
+  created_at: string;
+  updated_at: string;
+  element_count?: number;
 }

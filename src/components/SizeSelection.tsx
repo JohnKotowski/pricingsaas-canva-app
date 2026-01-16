@@ -177,7 +177,7 @@ export function SizeSelection({
             {selectedPreset === 'custom' && (
               <Button
                 variant="primary"
-                onClick={onContinue}
+                onClick={() => onContinue('custom')}
               >
                 Continue with Custom Size
               </Button>

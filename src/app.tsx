@@ -8,10 +8,23 @@ import * as styles from "./index.css";
 import { SizeSelection } from "./components/SizeSelection";
 import { AssetGrid } from "./components/AssetGrid";
 import { CollectionsList } from "./components/CollectionsList";
-import { Asset, Collection, TabType, SizePreset, UploadCache, UploadProgress } from "./types";
+import { ReportsList } from "./components/ReportsList";
+import { ReportElementsList } from "./components/ReportElementsList";
+import { Asset, Collection, Report, ReportElement, TabType, SizePreset, UploadCache, UploadProgress } from "./types";
+import {
+  createTitleElementSlide,
+  createTextElementSlide,
+  createSectionHeaderSlide,
+  createExampleSlide,
+  createTilesSlide,
+  createTableSlide,
+  createGraphSlide,
+  createPlaceholderSlide,
+  createErrorSlide
+} from "./utils/reportSlideGenerators";
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('collections');
+  const [activeTab, setActiveTab] = useState<TabType>('reports');
   const [collections, setCollections] = useState<Collection[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [filteredAssets, setFilteredAssets] = useState<Asset[]>([]);
@@ -19,16 +32,16 @@ export function App() {
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [designWidth, setDesignWidth] = useState(1080);
-  const [designHeight, setDesignHeight] = useState(1080);
-  const [footerHeight, setFooterHeight] = useState(75);
+  const [designWidth, setDesignWidth] = useState(800);
+  const [designHeight, setDesignHeight] = useState(600);
+  const [footerHeight, setFooterHeight] = useState(60);
   const [addBackground, setAddBackground] = useState(true);
   const [includeCuratedBy, setIncludeCuratedBy] = useState(true);
   const [includeFooterBar, setIncludeFooterBar] = useState(true);
   const [includeDateChip, setIncludeDateChip] = useState(true);
-  const [logoSize, setLogoSize] = useState(58); // Default company logo size (was responsive: 58px at 1080px width)
-  const [logoOffsetX, setLogoOffsetX] = useState(40); // Default company logo position from left
-  const [logoOffsetY, setLogoOffsetY] = useState(1013); // Default Y position (in footer area for 1080px height)
+  const [logoSize, setLogoSize] = useState(40); // Default company logo size adjusted for 800x600
+  const [logoOffsetX, setLogoOffsetX] = useState(30); // Default company logo position from left
+  const [logoOffsetY, setLogoOffsetY] = useState(550); // Default Y position (in footer area for 600px height)
   const [headerColor, setHeaderColor] = useState('#000000');
   const [subheaderColor, setSubheaderColor] = useState('#000000');
   const [imageAreaScale, setImageAreaScale] = useState(1.0); // Scale factor for image area (1.0 = 100%, 0.75 = 75%)
@@ -51,7 +64,7 @@ export function App() {
   const [categoryColor, setCategoryColor] = useState('#F7F7F7'); // Category text color (light gray)
   const [categoryFontSize, setCategoryFontSize] = useState(36); // Category font size (matches header max size, 25% smaller)
   const [includeCompanyLink, setIncludeCompanyLink] = useState(true); // Toggle for company link display
-  const [companyLinkY, setCompanyLinkY] = useState(850); // Company link Y position from top (above footer)
+  const [companyLinkY, setCompanyLinkY] = useState(500); // Company link Y position from top (above footer, adjusted for 600px height)
   const [companyLinkFontSize, setCompanyLinkFontSize] = useState(18); // Company link font size
   const [companyLinkColor, setCompanyLinkColor] = useState('#F7F7F7'); // Company link text color (light gray)
   const [uploadCache, setUploadCache] = useState<Map<string, UploadCache>>(new Map());
@@ -59,10 +72,10 @@ export function App() {
   const abortController = useRef<AbortController | null>(null);
 
   // Size selection state
-  const [showSizeSelection, setShowSizeSelection] = useState(true);
-  const [selectedPreset, setSelectedPreset] = useState<SizePreset>('1:1');
-  const [customWidth, setCustomWidth] = useState(1080);
-  const [customHeight, setCustomHeight] = useState(1080);
+  const [showSizeSelection, setShowSizeSelection] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<SizePreset>('custom');
+  const [customWidth, setCustomWidth] = useState(800);
+  const [customHeight, setCustomHeight] = useState(600);
 
   // Bulk insert state
   const [showBulkInsertModal, setShowBulkInsertModal] = useState(false);
@@ -73,9 +86,16 @@ export function App() {
   const [includeIndexSlides, setIncludeIndexSlides] = useState(false);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
 
-  // Load collections on app start
+  // Reports state
+  const [reports, setReports] = useState<Report[]>([]);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [importingElementId, setImportingElementId] = useState<string | null>(null);
+
+  // Load collections and reports on app start
   useEffect(() => {
     loadCollections();
+    loadReports();
   }, []);
 
   // Handle size selection
@@ -213,6 +233,133 @@ export function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadReports = async () => {
+    try {
+      setLoadingReports(true);
+      setError(null);
+
+      // Call edge function to get reports
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/canva-get-reports`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          // MVP: No user token needed, function filters by visibility='public'
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load reports: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.reports) {
+        console.log('Loaded reports:', data.reports);
+        // Log tiles elements to check if values are present
+        data.reports.forEach((report: Report) => {
+          report.elements.forEach((element: ReportElement) => {
+            if (element.type === 'tiles') {
+              console.log(`Tiles element in report ${report.id}:`, element.content);
+            }
+          });
+        });
+        setReports(data.reports);
+      } else {
+        throw new Error(data.message || 'Failed to load reports');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load reports';
+      setError(errorMessage);
+      console.error('Error loading reports:', err);
+    } finally {
+      setLoadingReports(false);
+    }
+  };
+
+  // Import a single element and create slide
+  const importSingleElement = async (element: ReportElement, index: number) => {
+    try {
+      setImportingElementId(element.id);
+
+      // Route to appropriate generator based on type
+      switch (element.type) {
+        case 'title':
+          await createTitleElementSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        case 'text':
+          await createTextElementSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        case 'section_header':
+          await createSectionHeaderSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        case 'example':
+          await createExampleSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        case 'tiles':
+          console.log('Creating tiles slide with content:', element.content);
+          await createTilesSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        case 'example_table':
+          console.log('Creating table slide with content:', element.content);
+          await createTableSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        case 'graph':
+          console.log('Creating graph slide with content:', element.content);
+          await createGraphSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        // MVP: Use placeholders for complex types
+        case 'list':
+        case 'tags':
+          await createPlaceholderSlide(element.type, element.content, designWidth, designHeight, uploadWithRetry);
+          break;
+
+        default:
+          console.warn(`Unknown element type: ${element.type}`);
+          await createPlaceholderSlide(element.type, element.content, designWidth, designHeight, uploadWithRetry);
+      }
+
+      setImportingElementId(null);
+
+    } catch (error) {
+      console.error(`Error creating slide for element ${element.id}:`, error);
+      setImportingElementId(null);
+
+      // Create error slide
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      try {
+        await createErrorSlide(element.type, errorMessage, designWidth, designHeight, uploadWithRetry);
+      } catch (err) {
+        setError('Failed to create slide');
+      }
+    }
+  };
+
+  // Handle report selection - just show the elements
+  const handleSelectReport = (report: Report) => {
+    setSelectedReport(report);
+  };
+
+  // Handle element selection - import single element
+  const handleSelectElement = (element: ReportElement, index: number) => {
+    importSingleElement(element, index);
+  };
+
+  // Go back to reports list
+  const goBackToReports = () => {
+    setSelectedReport(null);
   };
 
   const selectCollection = async (collection: Collection) => {
@@ -3140,6 +3287,68 @@ export function App() {
 
 
   const renderTabContent = () => {
+    if (activeTab === 'reports') {
+      return (
+        <>
+          {/* Reports Header */}
+          <Box paddingX="3u" paddingY="2u">
+            {selectedReport ? (
+              <Rows spacing="2u">
+                <Button
+                  variant="secondary"
+                  onClick={goBackToReports}
+                >
+                  ← Reports
+                </Button>
+                <Box>
+                  <Text size="large">
+                    {selectedReport.name}
+                  </Text>
+                  {selectedReport.description && (
+                    <Text size="medium" tone="secondary">
+                      {selectedReport.description}
+                    </Text>
+                  )}
+                  <Text size="medium" tone="secondary">
+                    Click any slide to add it to your design
+                  </Text>
+                </Box>
+              </Rows>
+            ) : (
+              <Box>
+                <Text size="large">
+                  Saved Reports
+                </Text>
+                <Text size="medium" tone="secondary">
+                  Select a report to view its slides
+                </Text>
+              </Box>
+            )}
+          </Box>
+
+          {/* Reports Content */}
+          {loadingReports ? (
+            <Box paddingX="2u" paddingY="4u">
+              <LoadingIndicator size="medium" />
+            </Box>
+          ) : selectedReport ? (
+            /* Elements list view */
+            <ReportElementsList
+              elements={selectedReport.elements}
+              onSelectElement={handleSelectElement}
+              importingElementId={importingElementId}
+            />
+          ) : (
+            /* Reports list view */
+            <ReportsList
+              reports={reports}
+              onSelectReport={handleSelectReport}
+            />
+          )}
+        </>
+      );
+    }
+
     if (activeTab === 'collections') {
       return (
         <>
@@ -3443,7 +3652,7 @@ export function App() {
           </Box>
 
           {/* Image Area Scale Settings */}
-          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <Box padding="2u">
             <div style={{
               backgroundColor: '#f8fafc',
               border: '1px solid #e2e8f0',
@@ -3480,7 +3689,7 @@ export function App() {
           </Box>
 
           {/* Section Labels Settings */}
-          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <Box padding="2u">
             <div style={{
               backgroundColor: '#f8fafc',
               border: '1px solid #e2e8f0',
@@ -3569,7 +3778,7 @@ export function App() {
           </Box>
 
           {/* Header & Subheader Color Settings */}
-          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <Box padding="2u">
             <div style={{ marginBottom: '8px' }}>
               <Text size="medium">Header & Subheader Color Settings</Text>
             </div>
@@ -3617,7 +3826,7 @@ export function App() {
           </Box>
 
           {/* Header & Subheader Positioning Settings */}
-          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <Box padding="2u">
             <div style={{
               backgroundColor: '#f8fafc',
               border: '1px solid #e2e8f0',
@@ -3787,7 +3996,7 @@ export function App() {
           </Box>
 
           {/* Company Category Position & Styling Settings */}
-          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <Box padding="2u">
             <div style={{
               backgroundColor: '#f8fafc',
               border: '1px solid #e2e8f0',
@@ -3911,7 +4120,7 @@ export function App() {
           </Box>
 
           {/* Company Link Settings */}
-          <Box padding="2u" style={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+          <Box padding="2u">
             <div style={{
               backgroundColor: '#f8fafc',
               border: '1px solid #e2e8f0',
@@ -4020,7 +4229,13 @@ export function App() {
       <Rows spacing="2u">
         {/* Tab Navigation */}
         <Box paddingX="3u" paddingTop="2u">
-          <Grid columns={2} spacing="1u">
+          <Grid columns={3} spacing="1u">
+            <Button
+              variant={activeTab === 'reports' ? 'primary' : 'tertiary'}
+              onClick={() => setActiveTab('reports')}
+            >
+              Reports
+            </Button>
             <Button
               variant={activeTab === 'collections' ? 'primary' : 'tertiary'}
               onClick={() => setActiveTab('collections')}
@@ -4335,7 +4550,7 @@ export function App() {
                     }} />
                   </div>
                 </Box>
-                <Text size="small" tone="secondary" align="center">
+                <Text size="small" tone="secondary">
                   Please wait while we add your assets to the design...
                 </Text>
               </Rows>
@@ -4343,6 +4558,7 @@ export function App() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
