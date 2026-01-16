@@ -36,8 +36,23 @@ serve(async (req: Request) => {
   try {
     const { chartConfig } = await req.json() as GenerateChartRequest;
 
+    console.log('[DEBUG] Received chartConfig:', JSON.stringify(chartConfig, null, 2));
+
     if (!chartConfig) {
       throw new Error('chartConfig is required');
+    }
+
+    // Validate required fields
+    if (!chartConfig.type) {
+      throw new Error('chartConfig.type is required (bar, line, pie, doughnut, or radar)');
+    }
+
+    if (!chartConfig.labels || !Array.isArray(chartConfig.labels)) {
+      throw new Error('chartConfig.labels is required and must be an array');
+    }
+
+    if (!chartConfig.datasets || !Array.isArray(chartConfig.datasets)) {
+      throw new Error('chartConfig.datasets is required and must be an array');
     }
 
     // Set defaults

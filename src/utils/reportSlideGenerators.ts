@@ -811,9 +811,42 @@ export async function createGraphSlide(
     throw new Error('Graph element requires valid JSON configuration');
   }
 
+  // 2. Transform to Chart.js format if needed (use mock data for now)
+  // Check if this is old format (has mode/diffsBreakdown) or new format (has labels/datasets)
+  if (!chartConfig.labels || !chartConfig.datasets) {
+    console.log('[DEBUG] Converting old format to Chart.js format with mock data');
+
+    // Map old chart types to valid Chart.js types
+    const chartTypeMap: Record<string, string> = {
+      'grouped': 'bar',
+      'stacked': 'bar',
+      'line': 'line',
+      'pie': 'pie',
+      'doughnut': 'doughnut'
+    };
+
+    const chartType = chartTypeMap[chartConfig.chartType] || 'bar';
+
+    // Use mock data - default to bar chart
+    chartConfig = {
+      type: chartType,
+      title: chartConfig.title || 'Sample Chart',
+      labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+      datasets: [{
+        label: 'Sample Data',
+        data: [65, 59, 80, 81],
+        backgroundColor: ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b'],
+        borderColor: ['#2563eb', '#7c3aed', '#db2777', '#d97706'],
+        borderWidth: 2
+      }],
+      width: 800,
+      height: 500
+    };
+  }
+
   const title = chartConfig.title || 'Chart';
 
-  // 2. Create page
+  // 3. Create page
   await addPage({
     title: title.substring(0, 255),
     background: { color: '#ffffff' }
@@ -821,7 +854,7 @@ export async function createGraphSlide(
 
   await delay(500);
 
-  // 3. Add title
+  // 4. Add title
   const titleElement = {
     type: "text" as const,
     children: [title],
@@ -835,7 +868,7 @@ export async function createGraphSlide(
   };
   await addElement(titleElement);
 
-  // 4. Generate chart image via Supabase Edge Function
+  // 5. Generate chart image via Supabase Edge Function
   console.log('[DEBUG] Calling generate-chart function with config:', JSON.stringify(chartConfig));
 
   const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-chart`, {
@@ -861,7 +894,7 @@ export async function createGraphSlide(
     throw new Error('Chart generation returned invalid response');
   }
 
-  // 5. Upload chart image to Canva
+  // 6. Upload chart image to Canva
   if (!uploadWithRetry) {
     throw new Error('uploadWithRetry function is required for graph slides');
   }
@@ -873,7 +906,7 @@ export async function createGraphSlide(
     aiDisclosure: "none"
   });
 
-  // 6. Add chart image to slide
+  // 7. Add chart image to slide
   const chartWidth = Math.min(result.width || 800, designWidth * 0.8);
   const chartHeight = Math.min(result.height || 500, designHeight - 200);
   const chartX = (designWidth - chartWidth) / 2;
@@ -892,7 +925,7 @@ export async function createGraphSlide(
 
   console.log('[DEBUG] Chart image added to slide');
 
-  // 7. Add branding elements
+  // 8. Add branding elements
   await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
