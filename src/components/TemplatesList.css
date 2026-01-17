@@ -1,0 +1,29 @@
+.templateCard {
+  border: 2px solid #e5e7eb;
+  background-color: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.templateCard:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.templatePreview {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.templateMeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.templateActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

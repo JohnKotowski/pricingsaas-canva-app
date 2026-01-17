@@ -10,7 +10,13 @@ import { AssetGrid } from "./components/AssetGrid";
 import { CollectionsList } from "./components/CollectionsList";
 import { ReportsList } from "./components/ReportsList";
 import { ReportElementsList } from "./components/ReportElementsList";
-import { Asset, Collection, Report, ReportElement, TabType, SizePreset, UploadCache, UploadProgress } from "./types";
+import { SavePageAsTemplateView } from "./components/SavePageAsTemplateView";
+import { TemplateEditorView } from "./components/TemplateEditorView";
+import { TokenInputForm } from "./components/TokenInputForm";
+import { TemplatesList } from "./components/TemplatesList";
+import { Asset, Collection, Report, ReportElement, TabType, SizePreset, UploadCache, UploadProgress, TemplatePage, PageConfig, TokenValues } from "./types";
+import { TemplateScanner } from "./services/templateScanner";
+import { PageGenerator } from "./services/pageGenerator";
 import {
   createTitleElementSlide,
   createTextElementSlide,
@@ -92,10 +98,20 @@ export function App() {
   const [loadingReports, setLoadingReports] = useState(false);
   const [importingElementId, setImportingElementId] = useState<string | null>(null);
 
-  // Load collections and reports on app start
+  // Templates state
+  const [templates, setTemplates] = useState<TemplatePage[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplatePage | null>(null);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateView, setTemplateView] = useState<'list' | 'scan' | 'edit' | 'input'>('list');
+  const [scannedConfig, setScannedConfig] = useState<PageConfig | null>(null);
+  const [generatingPage, setGeneratingPage] = useState(false);
+  const pageGenerator = useRef(new PageGenerator());
+
+  // Load collections, reports, and templates on app start
   useEffect(() => {
     loadCollections();
     loadReports();
+    loadTemplates();
   }, []);
 
   // Handle size selection
@@ -279,6 +295,153 @@ export function App() {
       console.error('Error loading reports:', err);
     } finally {
       setLoadingReports(false);
+    }
+  };
+
+  // Load templates from Supabase
+  const loadTemplates = async () => {
+    try {
+      setLoadingTemplates(true);
+      setError(null);
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/template-pages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          action: 'list',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load templates: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.templates) {
+        setTemplates(data.templates);
+      } else {
+        throw new Error(data.message || 'Failed to load templates');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load templates';
+      setError(errorMessage);
+      console.error('Error loading templates:', err);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  // Save scanned template to Supabase
+  const saveTemplate = async (name: string, description: string, config: PageConfig) => {
+    try {
+      console.log('[App] saveTemplate called with name:', name);
+      console.log('[App] Calling Supabase Edge Function at:', `${SUPABASE_URL}/functions/v1/template-pages`);
+
+      // Deep clone the config to remove any circular references
+      const seen = new WeakSet();
+      const safeConfig = JSON.parse(JSON.stringify(config, (key, value) => {
+        // Handle circular references
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) {
+            return '[Circular]';
+          }
+          seen.add(value);
+
+          // Convert ref objects to strings
+          if (key === 'ref') {
+            return String(value);
+          }
+        }
+        return value;
+      }));
+
+      console.log('[App] Serialized config successfully');
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/template-pages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({
+          action: 'create',
+          templateData: {
+            name,
+            description,
+            page_config: safeConfig,
+          },
+        }),
+      });
+
+      console.log('[App] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[App] Error response:', errorText);
+        throw new Error(`Failed to save template: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[App] Response data:', data);
+
+      if (data.success && data.template) {
+        console.log('[App] Template saved successfully, reloading templates');
+        await loadTemplates(); // Reload templates
+        setTemplateView('list');
+        setScannedConfig(null);
+      } else {
+        throw new Error(data.message || 'Failed to save template');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save template';
+      setError(errorMessage);
+      console.error('[App] Error saving template:', err);
+    }
+  };
+
+  // Handle scan complete
+  const handleScanComplete = (config: PageConfig) => {
+    setScannedConfig(config);
+    setTemplateView('edit');
+  };
+
+  // Handle template edit save
+  const handleTemplateEditSave = async (name: string, description: string, updatedConfig: PageConfig) => {
+    console.log('[App] handleTemplateEditSave called with name:', name, 'elements:', updatedConfig.elements.length);
+    await saveTemplate(name, description, updatedConfig);
+    console.log('[App] Template saved successfully');
+  };
+
+  // Handle template selection for page generation
+  const handleSelectTemplateForGeneration = (template: TemplatePage) => {
+    setSelectedTemplate(template);
+    setTemplateView('input');
+  };
+
+  // Handle token form submit - generate page
+  const handleGeneratePageFromTemplate = async (tokenValues: TokenValues) => {
+    if (!selectedTemplate) return;
+
+    try {
+      setGeneratingPage(true);
+      await pageGenerator.current.createPageFromTemplate(
+        selectedTemplate.page_config,
+        tokenValues
+      );
+      setTemplateView('list');
+      setSelectedTemplate(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate page';
+      setError(errorMessage);
+      console.error('Error generating page:', err);
+    } finally {
+      setGeneratingPage(false);
     }
   };
 
@@ -3412,6 +3575,118 @@ export function App() {
       );
     }
 
+    if (activeTab === 'templates') {
+      return (
+        <Box>
+          {/* Templates header with scan button */}
+          {templateView === 'list' && (
+            <Box paddingX="3u" paddingY="2u">
+              <Rows spacing="2u">
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Text>Templates</Text>
+                  <Button
+                    variant="primary"
+                    onClick={() => setTemplateView('scan')}
+                  >
+                    Scan Page as Template
+                  </Button>
+                </div>
+              </Rows>
+            </Box>
+          )}
+
+          {/* Page Scanner View */}
+          {templateView === 'scan' && (
+            <div>
+              <Box paddingX="3u" paddingY="2u">
+                <Button
+                  variant="secondary"
+                  onClick={() => setTemplateView('list')}
+                >
+                  ← Back to Templates
+                </Button>
+              </Box>
+              <SavePageAsTemplateView
+                onScanComplete={handleScanComplete}
+                onError={setError}
+              />
+            </div>
+          )}
+
+          {/* Template Editor View */}
+          {templateView === 'edit' && scannedConfig && (
+            <div>
+              <Box paddingX="3u" paddingY="2u">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setTemplateView('list');
+                    setScannedConfig(null);
+                  }}
+                >
+                  ← Back to Templates
+                </Button>
+              </Box>
+              <TemplateEditorView
+                config={scannedConfig}
+                onSave={handleTemplateEditSave}
+                onCancel={() => {
+                  setTemplateView('list');
+                  setScannedConfig(null);
+                }}
+              />
+            </div>
+          )}
+
+          {/* Token Input View */}
+          {templateView === 'input' && selectedTemplate && (
+            <div>
+              <Box paddingX="3u" paddingY="2u">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setTemplateView('list');
+                    setSelectedTemplate(null);
+                  }}
+                  disabled={generatingPage}
+                >
+                  ← Back to Templates
+                </Button>
+              </Box>
+              <Box paddingX="3u">
+                <TokenInputForm
+                  tokenDefinitions={selectedTemplate.page_config.tokenDefinitions}
+                  onSubmit={handleGeneratePageFromTemplate}
+                  onCancel={() => {
+                    setTemplateView('list');
+                    setSelectedTemplate(null);
+                  }}
+                />
+              </Box>
+              {generatingPage && (
+                <Box paddingX="3u" paddingY="2u">
+                  <Text>Generating page...</Text>
+                </Box>
+              )}
+            </div>
+          )}
+
+          {/* Templates List View */}
+          {templateView === 'list' && (
+            <TemplatesList
+              templates={templates}
+              onSelectTemplate={handleSelectTemplateForGeneration}
+              loading={loadingTemplates}
+            />
+          )}
+        </Box>
+      );
+    }
+
     if (activeTab === 'settings') {
       return (
         <Box paddingX="3u">
@@ -4229,12 +4504,18 @@ export function App() {
       <Rows spacing="2u">
         {/* Tab Navigation */}
         <Box paddingX="3u" paddingTop="2u">
-          <Grid columns={3} spacing="1u">
+          <Grid columns={4} spacing="1u">
             <Button
               variant={activeTab === 'reports' ? 'primary' : 'tertiary'}
               onClick={() => setActiveTab('reports')}
             >
               Reports
+            </Button>
+            <Button
+              variant={activeTab === 'templates' ? 'primary' : 'tertiary'}
+              onClick={() => setActiveTab('templates')}
+            >
+              Templates
             </Button>
             <Button
               variant={activeTab === 'collections' ? 'primary' : 'tertiary'}
