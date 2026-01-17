@@ -68,6 +68,19 @@ const GRAPH_CONFIGS = {
     diffsShiftQuarters: true,
     chartType: 'grouped',
     title: 'Product Events Over Time'
+  },
+  yearlyComparison: {
+    mode: 'diffs',
+    diffsBreakdown: 'event_type',
+    diffsEventCategory: 'all',
+    diffsSelectedPeriods: ['2024Y', '2025Y'],
+    diffsRequireAllPeriods: true,
+    diffsCountMode: 'unique',
+    diffsShowTrendLine: true,
+    diffsChartMode: 'events',
+    diffsPeriodGranularity: 'yearly',
+    chartType: 'grouped',
+    title: 'Pricing Events by Year'
   }
 };
 
@@ -182,9 +195,9 @@ function filterEventsByCategory(eventTypeData, category) {
   return filtered;
 }
 
-// Transform diffs API response to Chart.js format
+// Transform diffs API response to Chart.js format (periods on X-axis)
 function transformDiffsToChartJs(data, config) {
-  console.log('\n🔄 Transforming data to Chart.js format...');
+  console.log('\n🔄 Transforming data to Chart.js format (periods on X-axis)...');
 
   const periods = data.periods || [];
   const breakdownKey = `by_${config.diffsBreakdown || 'event_type'}`;
@@ -239,6 +252,87 @@ function transformDiffsToChartJs(data, config) {
   };
 
   console.log(`\n✅ Transformed to ${datasets.length} datasets across ${periods.length} periods`);
+
+  return chartData;
+}
+
+// Transform diffs API response to Chart.js format (event types on X-axis)
+function transformDiffsToEventsChart(data, config) {
+  console.log('\n🔄 Transforming data to Chart.js format (event types on X-axis)...');
+
+  const breakdownKey = `by_${config.diffsBreakdown || 'event_type'}`;
+  let breakdownData = data[breakdownKey] || {};
+
+  // Apply category filter if specified
+  if (config.diffsEventCategory && config.diffsEventCategory !== 'all') {
+    breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
+  }
+
+  // Format event type names for display
+  const formatEventType = (type) => {
+    return type
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  // Normalize period keys (remove Y suffix if present)
+  const normalizePeriod = (period) => {
+    return period.replace(/Y$/i, '');
+  };
+
+  // Get normalized periods from response (API returns "2024", not "2024Y")
+  const rawPeriods = data.periods || [];
+  const normalizedPeriods = rawPeriods.map(normalizePeriod);
+
+  console.log('  ℹ️  Normalized periods:', normalizedPeriods.join(', '));
+
+  // Calculate totals for each event type and sort by total descending
+  const eventTypesWithTotals = Object.entries(breakdownData).map(([eventType, periodData]) => {
+    const total = normalizedPeriods.reduce((sum, period) => {
+      return sum + (periodData[period]?.count || 0);
+    }, 0);
+    return { eventType, periodData, total };
+  });
+
+  // Sort by total descending
+  eventTypesWithTotals.sort((a, b) => b.total - a.total);
+
+  // Build labels (event types on X-axis)
+  const labels = eventTypesWithTotals.map(({ eventType }) => formatEventType(eventType));
+
+  // Color palette for periods
+  const colors = [
+    '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981',
+    '#6366f1', '#ef4444', '#14b8a6', '#f97316', '#06b6d4'
+  ];
+
+  // Build datasets - one per period
+  const datasets = normalizedPeriods.map((period, index) => {
+    const counts = eventTypesWithTotals.map(({ periodData }) => periodData[period]?.count || 0);
+    const total = counts.reduce((sum, count) => sum + count, 0);
+
+    console.log(`  - ${period}: ${total} total events`);
+
+    return {
+      label: period,
+      data: counts,
+      backgroundColor: colors[index % colors.length],
+      borderColor: colors[index % colors.length],
+      borderWidth: 1
+    };
+  });
+
+  const chartData = {
+    type: 'bar',
+    labels,
+    datasets,
+    title: config.title || 'Chart',
+    subtitle: data.metadata?.pages_with_all_periods
+      ? `${data.metadata.pages_with_all_periods} total pages`
+      : undefined
+  };
+
+  console.log(`\n✅ Transformed to ${datasets.length} periods across ${labels.length} event types`);
 
   return chartData;
 }
@@ -358,7 +452,14 @@ async function testChartGeneration() {
     const data = await fetchDiffsData(graphConfig, apiKey);
 
     // Step 2: Transform data
-    const chartData = transformDiffsToChartJs(data, graphConfig);
+    let chartData;
+    if (graphConfig.diffsChartMode === 'events' && graphConfig.diffsBreakdown === 'event_type') {
+      console.log('Using events-based transform (event types on X-axis)');
+      chartData = transformDiffsToEventsChart(data, graphConfig);
+    } else {
+      console.log('Using standard transform (periods on X-axis)');
+      chartData = transformDiffsToChartJs(data, graphConfig);
+    }
 
     // Step 3: Generate chart
     const chartUrl = await generateChart(chartData);

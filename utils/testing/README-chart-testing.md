@@ -110,14 +110,15 @@ The script includes multiple pre-configured graph configs. Change the selected c
 
 ```javascript
 // Test different graphs by changing this line:
-const graphConfig = GRAPH_CONFIGS.pricingEvents;  // Change to: allEvents, pricingEvents, packagingEvents, productEvents
+const graphConfig = GRAPH_CONFIGS.pricingEvents;  // Change to: allEvents, pricingEvents, packagingEvents, productEvents, yearlyComparison
 ```
 
 Available configs:
-- **`allEvents`** - All 24 event types (no filtering)
-- **`pricingEvents`** - Only 8 pricing event types (price_increased, discount_added, etc.)
-- **`packagingEvents`** - Only 13 packaging event types (plan_added, threshold_added, etc.)
-- **`productEvents`** - Only 3 product event types (feature_added, feature_removed, feature_changed)
+- **`allEvents`** - All 24 event types (no filtering), periods on X-axis
+- **`pricingEvents`** - Only 8 pricing event types (price_increased, discount_added, etc.), periods on X-axis
+- **`packagingEvents`** - Only 13 packaging event types (plan_added, threshold_added, etc.), periods on X-axis
+- **`productEvents`** - Only 3 product event types (feature_added, feature_removed, feature_changed), periods on X-axis
+- **`yearlyComparison`** - All event types with yearly periods, event types on X-axis (grouped by year)
 
 Or create your own custom config:
 
