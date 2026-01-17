@@ -811,9 +811,13 @@ export async function createGraphSlide(
     throw new Error('Graph element requires valid JSON configuration');
   }
 
-  // 2. Transform to Chart.js format if needed (use mock data for now)
-  // Check if this is old format (has mode/diffsBreakdown) or new format (has labels/datasets)
-  if (!chartConfig.labels || !chartConfig.datasets) {
+  // 2. Check if we need to transform the config
+  // If it has mode: "diffs", the Edge Function will fetch real data
+  // Otherwise, transform to Chart.js format with mock data
+  if (chartConfig.mode === 'diffs') {
+    console.log('[DEBUG] Diffs mode detected, Edge Function will fetch real data');
+    // Keep chartConfig as-is, Edge Function will handle data fetching
+  } else if (!chartConfig.labels || !chartConfig.datasets) {
     console.log('[DEBUG] Converting old format to Chart.js format with mock data');
 
     // Map old chart types to valid Chart.js types
@@ -839,8 +843,8 @@ export async function createGraphSlide(
         borderColor: ['#2563eb', '#7c3aed', '#db2777', '#d97706'],
         borderWidth: 2
       }],
-      width: 800,
-      height: 500
+      width: 1920,
+      height: 1080
     };
   }
 
@@ -907,8 +911,8 @@ export async function createGraphSlide(
   });
 
   // 7. Add chart image to slide
-  const chartWidth = Math.min(result.width || 800, designWidth * 0.8);
-  const chartHeight = Math.min(result.height || 500, designHeight - 200);
+  const chartWidth = Math.min(result.width || 1920, designWidth * 0.8);
+  const chartHeight = Math.min(result.height || 1080, designHeight - 200);
   const chartX = (designWidth - chartWidth) / 2;
   const chartY = 120;
 
