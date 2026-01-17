@@ -305,7 +305,7 @@ serve(async (req: Request) => {
           }],
           xAxes: [{
             ticks: {
-              fontSize: 32,
+              fontSize: 28,
               fontFamily: 'Arial, sans-serif'
             }
           }]
