@@ -302,8 +302,8 @@ function transformDiffsToEventsChart(data, config) {
 
   // Color palette for periods - custom colors for yearly comparison
   const colors = [
-    '#aebb36', // First year (2024)
-    '#131c3b'  // Second year (2025)
+    '#131c3b', // First year (2024)
+    '#aebb36'  // Second year (2025)
   ];
 
   // Build datasets - one per period
