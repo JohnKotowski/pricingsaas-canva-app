@@ -186,10 +186,10 @@ function transformDiffsToEventsChart(data: any, config: any) {
   // Build labels (event types on X-axis)
   const labels = eventTypesWithTotals.map(({ eventType }) => formatEventType(eventType));
 
-  // Color palette for periods
+  // Color palette for periods - custom colors for yearly comparison
   const colors = [
-    '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981',
-    '#6366f1', '#ef4444', '#14b8a6', '#f97316', '#06b6d4'
+    '#aebb36', // First year (2024)
+    '#131c3b'  // Second year (2025)
   ];
 
   // Build datasets - one per period
