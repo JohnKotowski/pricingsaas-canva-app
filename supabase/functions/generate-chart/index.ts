@@ -38,6 +38,32 @@ async function fetchDiffsData(config: any, apiKey: string) {
   return response.json();
 }
 
+// Fetch crosstab data from analytics API (for category + event_type breakdown)
+async function fetchCrosstabData(config: any, apiKey: string) {
+  const response = await fetch(
+    'https://api.pricingsaas.com/functions/v1/api/analytics/diffs/crosstab',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        periods: config.diffsSelectedPeriods || [],
+        group_by: config.diffsBreakdown || 'category',
+        filters: {},
+        options: {}
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Analytics Crosstab API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 // Event type categories for filtering
 const EVENT_CATEGORIES: Record<string, string[]> = {
   pricing: [
@@ -110,6 +136,11 @@ function transformDiffsToChartJs(data: any, config: any) {
     breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
   }
 
+  // Format period labels (e.g., "2024Q1" -> "2024 Q1")
+  const formatPeriod = (period: string) => {
+    return period.replace(/Q(\d)/, 'Q$1').replace(/(\d{4})Q/, '$1 Q');
+  };
+
   // Format event type names for display
   const formatEventType = (type: string) => {
     return type
@@ -126,18 +157,58 @@ function transformDiffsToChartJs(data: any, config: any) {
     '#6366f1', '#10b981', '#f59e0b', '#3b82f6'
   ];
 
-  // Build datasets - one per event type
-  const datasets = Object.entries(breakdownData).map(([eventType, periodData]: [string, any], index: number) => ({
-    label: formatEventType(eventType),
-    data: periods.map((period: string) => periodData[period]?.count || 0),
-    backgroundColor: colors[index % colors.length],
-    borderColor: colors[index % colors.length],
-    borderWidth: 1
-  }));
+  // Calculate totals and sort by occurrence (highest to lowest)
+  const itemsWithTotals = Object.entries(breakdownData).map(([key, periodData]: [string, any]) => {
+    // Calculate total across all periods
+    const total = periods.reduce((sum: number, period: string) => {
+      const value = periodData[period];
+      if (!value) return sum;
+
+      if (config.diffsBreakdown === 'category') {
+        return sum + (value.total_events || value.total_diffs || 0);
+      }
+      return sum + (value.count || 0);
+    }, 0);
+
+    return { key, periodData, total };
+  });
+
+  // Sort by total descending (highest to lowest)
+  itemsWithTotals.sort((a, b) => b.total - a.total);
+
+  // Build datasets - one per event type or category
+  const datasets = itemsWithTotals.map(({ key, periodData }, index: number) => {
+    // Extract label based on breakdown type
+    const label = config.diffsBreakdown === 'category'
+      ? (periodData.category_name || key)
+      : formatEventType(key);
+
+    // Extract count based on breakdown type
+    const data = periods.map((period: string) => {
+      const value = periodData[period];
+      if (!value) return 0;
+
+      // For category breakdown, use total_events field
+      if (config.diffsBreakdown === 'category') {
+        return value.total_events || value.total_diffs || 0;
+      }
+
+      // For event_type breakdown, use count field
+      return value.count || 0;
+    });
+
+    return {
+      label,
+      data,
+      backgroundColor: colors[index % colors.length],
+      borderColor: colors[index % colors.length],
+      borderWidth: 1
+    };
+  });
 
   return {
     type: 'bar',
-    labels: periods,
+    labels: periods.map(formatPeriod),
     datasets,
     title: config.title || 'Chart',
     subtitle: data.metadata?.pages_with_all_periods
@@ -155,6 +226,11 @@ function transformDiffsToEventsChart(data: any, config: any) {
   if (config.diffsEventCategory && config.diffsEventCategory !== 'all') {
     breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
   }
+
+  // Format period labels (e.g., "2024Q1" -> "2024 Q1", "2024" stays "2024")
+  const formatPeriod = (period: string) => {
+    return period.replace(/Q(\d)/, 'Q$1').replace(/(\d{4})Q/, '$1 Q');
+  };
 
   // Format event type names for display
   const formatEventType = (type: string) => {
@@ -175,7 +251,16 @@ function transformDiffsToEventsChart(data: any, config: any) {
   // Calculate totals for each event type and sort by total descending
   const eventTypesWithTotals = Object.entries(breakdownData).map(([eventType, periodData]: [string, any]) => {
     const total = normalizedPeriods.reduce((sum, period) => {
-      return sum + (periodData[period]?.count || 0);
+      const value = periodData[period];
+      if (!value) return sum;
+
+      // For category breakdown, use total_events field
+      if (config.diffsBreakdown === 'category') {
+        return sum + (value.total_events || value.total_diffs || 0);
+      }
+
+      // For event_type breakdown, use count field
+      return sum + (value.count || 0);
     }, 0);
     return { eventType, periodData, total };
   });
@@ -183,23 +268,51 @@ function transformDiffsToEventsChart(data: any, config: any) {
   // Sort by total descending
   eventTypesWithTotals.sort((a, b) => b.total - a.total);
 
-  // Build labels (event types on X-axis)
-  const labels = eventTypesWithTotals.map(({ eventType }) => formatEventType(eventType));
+  // Build labels (event types or categories on X-axis)
+  const labels = eventTypesWithTotals.map(({ eventType, periodData }) => {
+    // For category breakdown, use category_name
+    if (config.diffsBreakdown === 'category') {
+      return periodData.category_name || eventType;
+    }
+    // For event_type breakdown, format the event type name
+    return formatEventType(eventType);
+  });
 
-  // Color palette for periods - custom colors for yearly comparison
+  // Color palette for periods - using brand colors and darker derivatives
   const colors = [
-    '#131c3b', // First year (2024)
-    '#aebb36'  // Second year (2025)
+    '#131c3b', // Navi
+    '#aebb36', // Dark Lime
+    '#3e5dc2', // Blue
+    '#a8b334', // Darker Lime (derivative of Lime)
+    '#5d6dc4', // Darker Purple (derivative of Purple)
+    '#191919', // Black
+    '#2d4591', // Darker Blue (derivative of Blue)
+    '#8a9628'  // Darkest Lime (derivative of Dark Lime)
   ];
 
   // Build datasets - one per period
-  const datasets = normalizedPeriods.map((period, index) => ({
-    label: period,
-    data: eventTypesWithTotals.map(({ periodData }) => periodData[period]?.count || 0),
-    backgroundColor: colors[index % colors.length],
-    borderColor: colors[index % colors.length],
-    borderWidth: 1
-  }));
+  const datasets = normalizedPeriods.map((period, index) => {
+    const data = eventTypesWithTotals.map(({ periodData }) => {
+      const value = periodData[period];
+      if (!value) return 0;
+
+      // For category breakdown, use total_events field
+      if (config.diffsBreakdown === 'category') {
+        return value.total_events || value.total_diffs || 0;
+      }
+
+      // For event_type breakdown, use count field
+      return value.count || 0;
+    });
+
+    return {
+      label: formatPeriod(period),
+      data,
+      backgroundColor: colors[index % colors.length],
+      borderColor: colors[index % colors.length],
+      borderWidth: 1
+    };
+  });
 
   console.log(`[DEBUG] Events chart: ${labels.length} event types, ${datasets.length} periods`);
 
@@ -211,6 +324,196 @@ function transformDiffsToEventsChart(data: any, config: any) {
     subtitle: data.metadata?.pages_with_all_periods
       ? `${data.metadata.pages_with_all_periods} total pages`
       : undefined
+  };
+}
+
+// Transform crosstab API response to stacked bar chart (categories on X-axis, event types stacked)
+function transformCrosstabToStackedChart(data: any, config: any) {
+  // Extract categories from data array
+  let categoryData = data.data || [];
+
+  // Get all unique event types
+  const allEventTypes = new Set<string>();
+  categoryData.forEach((item: any) => {
+    Object.keys(item.event_counts || {}).forEach(eventType => allEventTypes.add(eventType));
+  });
+
+  // Filter event types by category if specified
+  let filteredEventTypes = Array.from(allEventTypes);
+  if (config.diffsEventCategory && config.diffsEventCategory !== 'all') {
+    const allowedTypes = EVENT_CATEGORIES[config.diffsEventCategory];
+    if (allowedTypes) {
+      filteredEventTypes = filteredEventTypes.filter(eventType => allowedTypes.includes(eventType));
+      console.log(`[DEBUG] Filtered to ${filteredEventTypes.length} ${config.diffsEventCategory} event types`);
+    }
+  }
+
+  // Recalculate totals based on filtered event types and sort
+  categoryData = categoryData.map((item: any) => {
+    const filteredTotal = filteredEventTypes.reduce((sum: number, eventType: string) => {
+      return sum + (item.event_counts[eventType] || 0);
+    }, 0);
+    return { ...item, filteredTotal };
+  });
+  categoryData.sort((a: any, b: any) => b.filteredTotal - a.filteredTotal);
+
+  // Build labels (categories on X-axis)
+  const labels = categoryData.map((item: any) => item.category);
+
+  // Format event type names for display
+  const formatEventType = (type: string) => {
+    return type
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c: string) => c.toUpperCase());
+  };
+
+  // Color palette with high contrast and distinct hues
+  const colors = [
+    '#131c3b', // Dark Navy (brand)
+    '#aebb36', // Lime Green (brand)
+    '#e63946', // Red
+    '#3e5dc2', // Blue (brand)
+    '#f77f00', // Orange
+    '#06aed5', // Cyan
+    '#191919', // Black (brand)
+    '#9d4edd', // Purple
+    '#2a9d8f', // Teal
+    '#e76f51', // Coral
+    '#457b9d', // Steel Blue
+    '#c9184a', // Crimson
+    '#ffba08', // Gold
+    '#6a4c93', // Deep Purple
+    '#06d6a0', // Mint
+    '#ef476f', // Pink
+    '#118ab2', // Ocean Blue
+    '#073b4c', // Dark Teal
+    '#ffd166', // Yellow
+    '#8338ec', // Violet
+    '#fb5607', // Bright Orange
+    '#4361ee', // Royal Blue
+    '#a8dadc', // Light Blue
+    '#d90429'  // Dark Red
+  ];
+
+  // Sort filtered event types by total count (highest to lowest)
+  const eventTypeTotals = filteredEventTypes.map(eventType => {
+    const total = categoryData.reduce((sum: number, item: any) => {
+      return sum + (item.event_counts[eventType] || 0);
+    }, 0);
+    return { eventType, total };
+  });
+  eventTypeTotals.sort((a, b) => b.total - a.total);
+
+  // Build datasets - one per event type (will be stacked)
+  const datasets = eventTypeTotals.map(({ eventType }, index) => {
+    const data = categoryData.map((item: any) => item.event_counts[eventType] || 0);
+
+    return {
+      label: formatEventType(eventType),
+      data,
+      backgroundColor: colors[index % colors.length],
+      borderColor: colors[index % colors.length],
+      borderWidth: 1
+    };
+  });
+
+  console.log(`[DEBUG] Crosstab stacked chart: ${labels.length} categories, ${datasets.length} event types`);
+
+  return {
+    type: 'bar',
+    labels,
+    datasets,
+    title: config.title || 'Chart',
+    subtitle: data.totals
+      ? `${data.totals.companies} companies, ${data.totals.events} total events`
+      : undefined,
+    stacked: true
+  };
+}
+
+// Transform diffs API response to stacked bar chart (categories on X-axis, periods stacked)
+function transformDiffsToStackedCategories(data: any, config: any) {
+  const periods = data.periods || [];
+  const breakdownKey = `by_${config.diffsBreakdown || 'category'}`;
+  const breakdownData = data[breakdownKey] || {};
+
+  // Format period labels (e.g., "2024Q1" -> "2024 Q1")
+  const formatPeriod = (period: string) => {
+    return period.replace(/Q(\d)/, 'Q$1').replace(/(\d{4})Q/, '$1 Q');
+  };
+
+  // Extract categories and their names
+  const categoriesWithData = Object.entries(breakdownData).map(([key, periodData]: [string, any]) => {
+    const categoryName = config.diffsBreakdown === 'category'
+      ? (periodData.category_name || key)
+      : key;
+
+    // Calculate total across all periods
+    const total = periods.reduce((sum: number, period: string) => {
+      const value = periodData[period];
+      if (!value) return sum;
+      if (config.diffsBreakdown === 'category') {
+        return sum + (value.total_events || value.total_diffs || 0);
+      }
+      return sum + (value.count || 0);
+    }, 0);
+
+    return { key, periodData, categoryName, total };
+  });
+
+  // Sort categories by total descending
+  categoriesWithData.sort((a, b) => b.total - a.total);
+
+  // Build labels (categories on X-axis)
+  const labels = categoriesWithData.map(({ categoryName }) => categoryName);
+
+  // Color palette for periods - using brand colors and darker derivatives
+  const colors = [
+    '#131c3b', // Navi
+    '#aebb36', // Dark Lime
+    '#3e5dc2', // Blue
+    '#a8b334', // Darker Lime (derivative of Lime)
+    '#5d6dc4', // Darker Purple (derivative of Purple)
+    '#191919', // Black
+    '#2d4591', // Darker Blue (derivative of Blue)
+    '#8a9628'  // Darkest Lime (derivative of Dark Lime)
+  ];
+
+  // Build datasets - one per period (will be stacked)
+  const datasets = periods.map((period: string, index: number) => {
+    const data = categoriesWithData.map(({ periodData }) => {
+      const value = periodData[period];
+      if (!value) return 0;
+
+      // For category breakdown, use total_events field
+      if (config.diffsBreakdown === 'category') {
+        return value.total_events || value.total_diffs || 0;
+      }
+
+      // For event_type breakdown, use count field
+      return value.count || 0;
+    });
+
+    return {
+      label: formatPeriod(period),
+      data,
+      backgroundColor: colors[index % colors.length],
+      borderColor: colors[index % colors.length],
+      borderWidth: 1
+    };
+  });
+
+  console.log(`[DEBUG] Stacked categories chart: ${labels.length} categories, ${datasets.length} period layers`);
+
+  return {
+    type: 'bar',
+    labels,
+    datasets,
+    title: config.title || 'Chart',
+    subtitle: data.metadata?.pages_with_all_periods
+      ? `${data.metadata.pages_with_all_periods} total pages`
+      : undefined,
+    stacked: true
   };
 }
 
@@ -240,18 +543,30 @@ serve(async (req: Request) => {
         throw new Error('ANALYTICS_API_KEY not configured');
       }
 
-      // Fetch data from analytics API
-      const data = await fetchDiffsData(chartConfig, analyticsApiKey);
-      console.log('[DEBUG] Fetched diffs data, transforming to Chart.js format');
-
-      // Check if this is an events-based chart (event types on X-axis)
-      if (chartConfig.diffsChartMode === 'events' && chartConfig.diffsBreakdown === 'event_type') {
-        console.log('[DEBUG] Using events-based transform (event types on X-axis)');
-        finalChartConfig = transformDiffsToEventsChart(data, chartConfig);
+      // Check if we should use crosstab endpoint (categories on X with event type breakdown)
+      if (chartConfig.diffsChartMode === 'categories' && chartConfig.diffsBreakdown === 'category') {
+        console.log('[DEBUG] Using crosstab endpoint for category + event_type breakdown');
+        const data = await fetchCrosstabData(chartConfig, analyticsApiKey);
+        console.log('[DEBUG] Fetched crosstab data, transforming to stacked chart');
+        finalChartConfig = transformCrosstabToStackedChart(data, chartConfig);
       } else {
-        // Standard transform (periods on X-axis)
-        console.log('[DEBUG] Using standard transform (periods on X-axis)');
-        finalChartConfig = transformDiffsToChartJs(data, chartConfig);
+        // Fetch data from regular diffs API
+        const data = await fetchDiffsData(chartConfig, analyticsApiKey);
+        console.log('[DEBUG] Fetched diffs data, transforming to Chart.js format');
+
+        // Check if this is a stacked chart (categories on X-axis, periods stacked)
+        if (chartConfig.diffsChartMode === 'categories_stacked') {
+          console.log('[DEBUG] Using stacked categories transform (categories on X-axis, periods stacked)');
+          finalChartConfig = transformDiffsToStackedCategories(data, chartConfig);
+        } else if (chartConfig.diffsChartMode === 'events' || chartConfig.diffsChartMode === 'categories') {
+          // Breakdown items on X-axis (grouped bars)
+          console.log('[DEBUG] Using breakdown-on-X transform (categories/events on X-axis)');
+          finalChartConfig = transformDiffsToEventsChart(data, chartConfig);
+        } else {
+          // Standard transform (periods on X-axis)
+          console.log('[DEBUG] Using standard transform (periods on X-axis)');
+          finalChartConfig = transformDiffsToChartJs(data, chartConfig);
+        }
       }
     }
 
@@ -297,6 +612,7 @@ serve(async (req: Request) => {
         },
         scales: {
           yAxes: [{
+            stacked: finalChartConfig.stacked || false,
             ticks: {
               beginAtZero: true,
               fontSize: 24,
@@ -304,6 +620,7 @@ serve(async (req: Request) => {
             }
           }],
           xAxes: [{
+            stacked: finalChartConfig.stacked || false,
             ticks: {
               fontSize: 28,
               fontFamily: 'Arial, sans-serif'
