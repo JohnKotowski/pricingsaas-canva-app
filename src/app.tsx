@@ -32,8 +32,8 @@ export function App() {
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [designWidth, setDesignWidth] = useState(800);
-  const [designHeight, setDesignHeight] = useState(600);
+  const [designWidth, setDesignWidth] = useState(1920);
+  const [designHeight, setDesignHeight] = useState(1080);
   const [footerHeight, setFooterHeight] = useState(60);
   const [addBackground, setAddBackground] = useState(true);
   const [includeCuratedBy, setIncludeCuratedBy] = useState(true);
@@ -73,9 +73,9 @@ export function App() {
 
   // Size selection state
   const [showSizeSelection, setShowSizeSelection] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState<SizePreset>('custom');
-  const [customWidth, setCustomWidth] = useState(800);
-  const [customHeight, setCustomHeight] = useState(600);
+  const [selectedPreset, setSelectedPreset] = useState<SizePreset>('16:9');
+  const [customWidth, setCustomWidth] = useState(1920);
+  const [customHeight, setCustomHeight] = useState(1080);
 
   // Bulk insert state
   const [showBulkInsertModal, setShowBulkInsertModal] = useState(false);
