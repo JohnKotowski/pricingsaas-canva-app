@@ -272,7 +272,7 @@ serve(async (req: Request) => {
     const width = finalChartConfig.width || 1920;
     const height = finalChartConfig.height || 1080;
 
-    // Build Chart.js configuration
+    // Build Chart.js v2 configuration (QuickChart defaults to v2)
     const chartJsConfig = {
       type: finalChartConfig.type,
       data: {
@@ -280,51 +280,35 @@ serve(async (req: Request) => {
         datasets: finalChartConfig.datasets
       },
       options: {
-        plugins: {
-          legend: {
-            display: finalChartConfig.datasets.length > 1,
-            position: 'top' as const,
-            labels: {
-              font: {
-                size: 24,
-                family: 'Arial, sans-serif'
-              }
-            }
-          },
-          title: {
-            display: !!finalChartConfig.title,
-            text: finalChartConfig.title || '',
-            font: {
-              size: 42,
-              family: 'Arial, sans-serif',
-              weight: 'bold' as const
-            }
-          },
-          subtitle: finalChartConfig.subtitle ? {
-            display: true,
-            text: finalChartConfig.subtitle,
-            font: {
-              size: 32,
-              family: 'Arial, sans-serif'
-            }
-          } : undefined
+        legend: {
+          display: finalChartConfig.datasets.length > 1,
+          position: 'top' as const,
+          labels: {
+            fontSize: 24,
+            fontFamily: 'Arial, sans-serif'
+          }
+        },
+        title: {
+          display: !!finalChartConfig.title,
+          text: finalChartConfig.title || '',
+          fontSize: 42,
+          fontFamily: 'Arial, sans-serif',
+          fontStyle: 'bold'
         },
         scales: {
-          y: {
-            beginAtZero: true,
+          yAxes: [{
             ticks: {
-              font: {
-                size: 24
-              }
+              beginAtZero: true,
+              fontSize: 24,
+              fontFamily: 'Arial, sans-serif'
             }
-          },
-          x: {
+          }],
+          xAxes: [{
             ticks: {
-              font: {
-                size: 48
-              }
+              fontSize: 48,
+              fontFamily: 'Arial, sans-serif'
             }
-          }
+          }]
         },
         responsive: false,
         maintainAspectRatio: false
