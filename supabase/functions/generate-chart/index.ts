@@ -105,8 +105,8 @@ function transformDiffsToChartJs(data: any, config: any) {
   const breakdownKey = `by_${config.diffsBreakdown || 'event_type'}`;
   let breakdownData = data[breakdownKey] || {};
 
-  // Apply category filter if specified
-  if (config.diffsEventCategory && config.diffsEventCategory !== 'all') {
+  // Apply category filter only if breakdown is by event_type
+  if (config.diffsBreakdown === 'event_type' && config.diffsEventCategory && config.diffsEventCategory !== 'all') {
     breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
   }
 
