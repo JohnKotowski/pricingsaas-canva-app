@@ -321,7 +321,7 @@ serve(async (req: Request) => {
           x: {
             ticks: {
               font: {
-                size: 36
+                size: 48
               }
             }
           }
