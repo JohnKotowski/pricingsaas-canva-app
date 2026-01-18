@@ -524,32 +524,47 @@ function transformCrosstabToStackedChart(data: any, config: any) {
 // Transform diffs API response to stacked bar chart (categories on X-axis, periods stacked)
 function transformDiffsToStackedCategories(data: any, config: any) {
   const periods = data.periods || [];
-  const breakdownKey = `by_${config.diffsBreakdown || 'category'}`;
-  const breakdownData = data[breakdownKey] || {};
+
+  // Check if we should aggregate event types into categories FIRST
+  let breakdownData: Record<string, any>;
+  let actualBreakdown = config.diffsBreakdown || 'category';
+
+  if (config.diffsGroupByCategory === true) {
+    // Aggregate event types into 3 categories
+    const eventTypeData = data.by_event_type || {};
+    breakdownData = aggregateEventsByCategory(eventTypeData);
+    actualBreakdown = 'category';
+  } else {
+    // Use the breakdown specified in config
+    const breakdownKey = `by_${config.diffsBreakdown || 'category'}`;
+    breakdownData = data[breakdownKey] || {};
+  }
 
   // Format period labels (e.g., "2024Q1" -> "2024 Q1")
   const formatPeriod = (period: string) => {
     return period.replace(/Q(\d)/, 'Q$1').replace(/(\d{4})Q/, '$1 Q');
   };
 
-  // Extract categories and their names
-  const categoriesWithData = Object.entries(breakdownData).map(([key, periodData]: [string, any]) => {
-    const categoryName = config.diffsBreakdown === 'category'
-      ? (periodData.category_name || key)
-      : key;
+  // Extract categories and their names (filter out internal keys)
+  const categoriesWithData = Object.entries(breakdownData)
+    .filter(([key]) => !key.startsWith('_') && key !== 'category_name')
+    .map(([key, periodData]: [string, any]) => {
+      const categoryName = actualBreakdown === 'category'
+        ? (periodData.category_name || key)
+        : key;
 
-    // Calculate total across all periods
-    const total = periods.reduce((sum: number, period: string) => {
-      const value = periodData[period];
-      if (!value) return sum;
-      if (config.diffsBreakdown === 'category') {
-        return sum + (value.total_events || value.total_diffs || 0);
-      }
-      return sum + (value.count || 0);
-    }, 0);
+      // Calculate total across all periods
+      const total = periods.reduce((sum: number, period: string) => {
+        const value = periodData[period];
+        if (!value) return sum;
+        if (actualBreakdown === 'category') {
+          return sum + (value.total_events || value.total_diffs || 0);
+        }
+        return sum + (value.count || 0);
+      }, 0);
 
-    return { key, periodData, categoryName, total };
-  });
+      return { key, periodData, categoryName, total };
+    });
 
   // Sort categories by total descending
   categoriesWithData.sort((a, b) => b.total - a.total);
@@ -576,7 +591,7 @@ function transformDiffsToStackedCategories(data: any, config: any) {
       if (!value) return 0;
 
       // For category breakdown, use total_events field
-      if (config.diffsBreakdown === 'category') {
+      if (actualBreakdown === 'category') {
         return value.total_events || value.total_diffs || 0;
       }
 
@@ -650,7 +665,8 @@ serve(async (req: Request) => {
         const data = await fetchDiffsData(configForFetch, analyticsApiKey);
 
         // Check if this is a stacked chart (categories on X-axis, periods stacked)
-        if (chartConfig.diffsChartMode === 'categories_stacked') {
+        if (chartConfig.diffsChartMode === 'categories_stacked' ||
+            (chartConfig.diffsChartMode === 'categories' && chartConfig.diffsGroupByCategory)) {
           console.log('[DEBUG] Using stacked categories transform (categories on X-axis, periods stacked)');
           finalChartConfig = transformDiffsToStackedCategories(data, chartConfig);
         } else if (chartConfig.diffsChartMode === 'events' || chartConfig.diffsChartMode === 'categories') {
