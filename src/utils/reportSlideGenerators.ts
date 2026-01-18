@@ -404,13 +404,31 @@ export async function createExampleSlide(
   const afterImageLeft = sideMargin + imageWidth + centerGap; // 990
 
   try {
-    // Upload images - prefer cropped URLs, fallback to generic fields
-    const beforeUrl = config.primary_cropped_url || config.beforeImageUrl || config.before_image_url;
-    const afterUrl = config.secondary_cropped_url || config.afterImageUrl || config.after_image_url;
+    // Get image URLs from config
+    let beforeUrl = config.beforeImageUrl || config.before_image_url;
+    let afterUrl = config.afterImageUrl || config.after_image_url;
 
     if (!beforeUrl || !afterUrl) {
       throw new Error('Missing before/after image URLs');
     }
+
+    // Convert old S3 URLs to Cloudinary proxy format
+    if (beforeUrl.includes('s3.amazonaws.com')) {
+      beforeUrl = `https://res.cloudinary.com/pricing-explorer/image/fetch/${encodeURIComponent(beforeUrl)}`;
+    }
+    if (afterUrl.includes('s3.amazonaws.com')) {
+      afterUrl = `https://res.cloudinary.com/pricing-explorer/image/fetch/${encodeURIComponent(afterUrl)}`;
+    }
+
+    // Get zoom and pan settings (these define HOW the image is viewed)
+    const beforeZoom = config.beforeZoom ?? 0.75;
+    const afterZoom = config.afterZoom ?? 0.75;
+    const beforePan = config.beforePanOffset ?? { x: 0, y: 0 };
+    const afterPan = config.afterPanOffset ?? { x: 0, y: 0 };
+
+    // Get markers (optional red/green dots)
+    const beforeMarker = config.beforeMarker; // { x, y } in original image coordinates
+    const afterMarker = config.afterMarker;
 
     console.log('[createExampleSlide] Uploading before image:', beforeUrl);
     let beforeUpload;
