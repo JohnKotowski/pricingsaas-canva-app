@@ -179,12 +179,25 @@ function aggregateEventsByCategory(eventTypeData: Record<string, any>): Record<s
 // Transform diffs API response to Chart.js format (periods on X-axis)
 function transformDiffsToChartJs(data: any, config: any) {
   const periods = data.periods || [];
-  const breakdownKey = `by_${config.diffsBreakdown || 'event_type'}`;
-  let breakdownData = data[breakdownKey] || {};
 
-  // Apply category filter only if breakdown is by event_type
-  if (config.diffsBreakdown === 'event_type' && config.diffsEventCategory && config.diffsEventCategory !== 'all') {
-    breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
+  // Check if we should aggregate event types into categories FIRST
+  let breakdownData: Record<string, any>;
+  let actualBreakdown = config.diffsBreakdown || 'event_type';
+
+  if (config.diffsGroupByCategory === true) {
+    // Aggregate event types into 3 categories
+    const eventTypeData = data.by_event_type || {};
+    breakdownData = aggregateEventsByCategory(eventTypeData);
+    actualBreakdown = 'category';
+  } else {
+    // Use the breakdown specified in config
+    const breakdownKey = `by_${config.diffsBreakdown || 'event_type'}`;
+    breakdownData = data[breakdownKey] || {};
+
+    // Apply category filter only if breakdown is by event_type
+    if (config.diffsBreakdown === 'event_type' && config.diffsEventCategory && config.diffsEventCategory !== 'all') {
+      breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
+    }
   }
 
   // Format period labels (e.g., "2024Q1" -> "2024 Q1")
@@ -209,20 +222,22 @@ function transformDiffsToChartJs(data: any, config: any) {
   ];
 
   // Calculate totals and sort by occurrence (highest to lowest)
-  const itemsWithTotals = Object.entries(breakdownData).map(([key, periodData]: [string, any]) => {
-    // Calculate total across all periods
-    const total = periods.reduce((sum: number, period: string) => {
-      const value = periodData[period];
-      if (!value) return sum;
+  const itemsWithTotals = Object.entries(breakdownData)
+    .filter(([key]) => !key.startsWith('_') && key !== 'category_name')
+    .map(([key, periodData]: [string, any]) => {
+      // Calculate total across all periods
+      const total = periods.reduce((sum: number, period: string) => {
+        const value = periodData[period];
+        if (!value) return sum;
 
-      if (config.diffsBreakdown === 'category') {
-        return sum + (value.total_events || value.total_diffs || 0);
-      }
-      return sum + (value.count || 0);
-    }, 0);
+        if (actualBreakdown === 'category') {
+          return sum + (value.total_events || value.total_diffs || 0);
+        }
+        return sum + (value.count || 0);
+      }, 0);
 
-    return { key, periodData, total };
-  });
+      return { key, periodData, total };
+    });
 
   // Sort by total descending (highest to lowest)
   itemsWithTotals.sort((a, b) => b.total - a.total);
@@ -230,7 +245,7 @@ function transformDiffsToChartJs(data: any, config: any) {
   // Build datasets - one per event type or category
   const datasets = itemsWithTotals.map(({ key, periodData }, index: number) => {
     // Extract label based on breakdown type
-    const label = config.diffsBreakdown === 'category'
+    const label = actualBreakdown === 'category'
       ? (periodData.category_name || key)
       : formatEventType(key);
 
@@ -240,7 +255,7 @@ function transformDiffsToChartJs(data: any, config: any) {
       if (!value) return 0;
 
       // For category breakdown, use total_events field
-      if (config.diffsBreakdown === 'category') {
+      if (actualBreakdown === 'category') {
         return value.total_events || value.total_diffs || 0;
       }
 
@@ -261,6 +276,7 @@ function transformDiffsToChartJs(data: any, config: any) {
     type: 'bar',
     labels: periods.map(formatPeriod),
     datasets,
+    stacked: config.diffsStacked || false,
     title: config.title || 'Chart',
     subtitle: data.metadata?.pages_with_all_periods
       ? `${data.metadata.pages_with_all_periods} total pages`
