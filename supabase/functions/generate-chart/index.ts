@@ -493,9 +493,9 @@ function transformCrosstabToStackedChart(data: any, config: any) {
   if (useEventTypeCategories) {
     // Group event types into 3 categories: Pricing, Packaging, Product
     const categoryColors = {
-      pricing: '#06aed5',    // Cyan
-      packaging: '#f77f00',  // Orange
-      product: '#e63946'     // Red/Pink
+      pricing: '#3e5dc2',    // Blue
+      packaging: '#d8e364',  // Lime
+      product: '#9fadf4'     // Purple
     };
 
     const categoryNames = {
