@@ -294,11 +294,19 @@ export class PageGenerator {
       return;
     }
 
-    // Ensure paths have required fill property
-    const paths = element.paths.map(path => ({
-      ...path,
-      fill: path.fill || { color: '#000000' }, // Default fill if not specified
-    }));
+    // Ensure paths have required fill property with valid color
+    const paths = element.paths.map(path => {
+      // Ensure fill exists and has a valid color
+      const fill = path.fill && typeof path.fill === 'object' ? path.fill : {};
+      const color = fill.color && /^#[0-9A-Fa-f]{6}$/.test(fill.color)
+        ? fill.color
+        : '#000000';
+
+      return {
+        ...path,
+        fill: { ...fill, color },
+      };
+    });
 
     await addElementAtPoint({
       type: 'shape',

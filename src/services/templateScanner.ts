@@ -144,12 +144,30 @@ export class TemplateScanner {
           if (element.paths) {
             paths = element.paths.toArray();
 
-            // Serialize each path
-            paths = paths.map((path) => ({
-              d: path.d,
-              fill: this.extractSerializableProps(path.fill, 2),
-              stroke: path.stroke ? this.extractSerializableProps(path.stroke, 2) : undefined,
-            }));
+            // Serialize each path with proper fill extraction
+            paths = paths.map((path) => {
+              const serializedPath: any = { d: path.d };
+
+              // Extract fill properties, ensuring color is preserved
+              if (path.fill) {
+                const fill = this.extractSerializableProps(path.fill, 2);
+                // Ensure we have a color property
+                if (fill && typeof fill === 'object') {
+                  serializedPath.fill = fill;
+                } else {
+                  serializedPath.fill = { color: '#000000' };
+                }
+              } else {
+                serializedPath.fill = { color: '#000000' };
+              }
+
+              // Extract stroke if present
+              if (path.stroke) {
+                serializedPath.stroke = this.extractSerializableProps(path.stroke, 2);
+              }
+
+              return serializedPath;
+            });
           }
 
           if (element.viewBox) {
