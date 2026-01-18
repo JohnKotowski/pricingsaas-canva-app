@@ -404,9 +404,9 @@ export async function createExampleSlide(
   const afterImageLeft = sideMargin + imageWidth + centerGap; // 990
 
   try {
-    // Get image URLs from config
-    let beforeUrl = config.beforeImageUrl || config.before_image_url;
-    let afterUrl = config.afterImageUrl || config.after_image_url;
+    // Get image URLs from config - prefer new cropped URLs (already at 1200x600)
+    let beforeUrl = config.beforeCroppedUrl || config.beforeImageUrl || config.before_image_url;
+    let afterUrl = config.afterCroppedUrl || config.afterImageUrl || config.after_image_url;
 
     if (!beforeUrl || !afterUrl) {
       throw new Error('Missing before/after image URLs');
@@ -420,15 +420,9 @@ export async function createExampleSlide(
       afterUrl = `https://res.cloudinary.com/pricing-explorer/image/fetch/${encodeURIComponent(afterUrl)}`;
     }
 
-    // Get zoom and pan settings (these define HOW the image is viewed)
-    const beforeZoom = config.beforeZoom ?? 0.75;
-    const afterZoom = config.afterZoom ?? 0.75;
-    const beforePan = config.beforePanOffset ?? { x: 0, y: 0 };
-    const afterPan = config.afterPanOffset ?? { x: 0, y: 0 };
-
-    // Get markers (optional red/green dots)
-    const beforeMarker = config.beforeMarker; // { x, y } in original image coordinates
-    const afterMarker = config.afterMarker;
+    // Get markers (optional red/green dots) - prefer cropped coordinates
+    const beforeMarker = config.beforeCroppedMarker || config.beforeMarker;
+    const afterMarker = config.afterCroppedMarker || config.afterMarker;
 
     console.log('[createExampleSlide] Uploading before image:', beforeUrl);
     let beforeUpload;
@@ -706,6 +700,28 @@ export async function createExampleSlide(
     };
     await addElement(beforeImageElement);
 
+    // Add before marker (red dot) if present
+    if (beforeMarker && beforeMarker.x !== undefined && beforeMarker.y !== undefined) {
+      const markerRadius = 12;
+      const scaleFactor = imageWidth / 1200; // Scale from 1200px source to display width
+      const markerX = beforeImageLeft + (beforeMarker.x * scaleFactor);
+      const markerY = imageTop + (beforeMarker.y * scaleFactor);
+
+      const beforeMarkerCircle = {
+        type: "shape" as const,
+        paths: [{
+          d: `M ${markerRadius} 0 A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} ${markerRadius * 2} A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} 0 Z`,
+          fill: { color: "#ef4444" } // Red
+        }],
+        top: markerY - markerRadius,
+        left: markerX - markerRadius,
+        width: markerRadius * 2,
+        height: markerRadius * 2,
+        viewBox: { top: 0, left: 0, width: markerRadius * 2, height: markerRadius * 2 }
+      };
+      await addElement(beforeMarkerCircle);
+    }
+
     // After image border (1px grey)
     const afterBorderElement = {
       type: "shape" as const,
@@ -732,6 +748,28 @@ export async function createExampleSlide(
       height: imageHeight
     };
     await addElement(afterImageElement);
+
+    // Add after marker (green dot) if present
+    if (afterMarker && afterMarker.x !== undefined && afterMarker.y !== undefined) {
+      const markerRadius = 12;
+      const scaleFactor = imageWidth / 1200; // Scale from 1200px source to display width
+      const markerX = afterImageLeft + (afterMarker.x * scaleFactor);
+      const markerY = imageTop + (afterMarker.y * scaleFactor);
+
+      const afterMarkerCircle = {
+        type: "shape" as const,
+        paths: [{
+          d: `M ${markerRadius} 0 A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} ${markerRadius * 2} A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} 0 Z`,
+          fill: { color: "#84cc16" } // Green
+        }],
+        top: markerY - markerRadius,
+        left: markerX - markerRadius,
+        width: markerRadius * 2,
+        height: markerRadius * 2,
+        viewBox: { top: 0, left: 0, width: markerRadius * 2, height: markerRadius * 2 }
+      };
+      await addElement(afterMarkerCircle);
+    }
 
   } catch (error) {
     console.error('Error creating example slide:', error);
