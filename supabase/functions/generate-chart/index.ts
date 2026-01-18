@@ -428,6 +428,9 @@ function transformCrosstabToStackedChart(data: any, config: any) {
     Object.keys(item.event_counts || {}).forEach(eventType => allEventTypes.add(eventType));
   });
 
+  // Check if we should group event types into categories
+  let useEventTypeCategories = config.diffsGroupByCategory === true;
+
   // Filter event types by category if specified
   let filteredEventTypes = Array.from(allEventTypes);
   if (config.diffsEventCategory && config.diffsEventCategory !== 'all') {
@@ -485,29 +488,80 @@ function transformCrosstabToStackedChart(data: any, config: any) {
     '#d90429'  // Dark Red
   ];
 
-  // Sort filtered event types by total count (highest to lowest)
-  const eventTypeTotals = filteredEventTypes.map(eventType => {
-    const total = categoryData.reduce((sum: number, item: any) => {
-      return sum + (item.event_counts[eventType] || 0);
-    }, 0);
-    return { eventType, total };
-  });
-  eventTypeTotals.sort((a, b) => b.total - a.total);
+  let datasets: any[];
 
-  // Build datasets - one per event type (will be stacked)
-  const datasets = eventTypeTotals.map(({ eventType }, index) => {
-    const data = categoryData.map((item: any) => item.event_counts[eventType] || 0);
-
-    return {
-      label: formatEventType(eventType),
-      data,
-      backgroundColor: colors[index % colors.length],
-      borderColor: colors[index % colors.length],
-      borderWidth: 1
+  if (useEventTypeCategories) {
+    // Group event types into 3 categories: Pricing, Packaging, Product
+    const categoryColors = {
+      pricing: '#06aed5',    // Cyan
+      packaging: '#f77f00',  // Orange
+      product: '#e63946'     // Red/Pink
     };
-  });
 
-  console.log(`[DEBUG] Crosstab stacked chart: ${labels.length} categories, ${datasets.length} event types`);
+    const categoryNames = {
+      pricing: 'Pricing Events',
+      packaging: 'Packaging Events',
+      product: 'Product Events'
+    };
+
+    const eventTypeCategories = ['pricing', 'packaging', 'product'];
+
+    // Calculate totals for sorting
+    const categoryTotals = eventTypeCategories.map(cat => {
+      const total = categoryData.reduce((sum: number, item: any) => {
+        const eventTypes = EVENT_CATEGORIES[cat] || [];
+        return sum + eventTypes.reduce((catSum: number, eventType: string) => {
+          return catSum + (item.event_counts[eventType] || 0);
+        }, 0);
+      }, 0);
+      return { category: cat, total };
+    });
+    categoryTotals.sort((a, b) => b.total - a.total);
+
+    // Build datasets - one per event type category
+    datasets = categoryTotals.map(({ category }) => {
+      const eventTypes = EVENT_CATEGORIES[category] || [];
+      const data = categoryData.map((item: any) => {
+        return eventTypes.reduce((sum: number, eventType: string) => {
+          return sum + (item.event_counts[eventType] || 0);
+        }, 0);
+      });
+
+      return {
+        label: categoryNames[category as keyof typeof categoryNames],
+        data,
+        backgroundColor: categoryColors[category as keyof typeof categoryColors],
+        borderColor: categoryColors[category as keyof typeof categoryColors],
+        borderWidth: 1
+      };
+    });
+
+    console.log(`[DEBUG] Crosstab with grouped categories: ${labels.length} categories, 3 event type groups`);
+  } else {
+    // Sort filtered event types by total count (highest to lowest)
+    const eventTypeTotals = filteredEventTypes.map(eventType => {
+      const total = categoryData.reduce((sum: number, item: any) => {
+        return sum + (item.event_counts[eventType] || 0);
+      }, 0);
+      return { eventType, total };
+    });
+    eventTypeTotals.sort((a, b) => b.total - a.total);
+
+    // Build datasets - one per event type (will be stacked)
+    datasets = eventTypeTotals.map(({ eventType }, index) => {
+      const data = categoryData.map((item: any) => item.event_counts[eventType] || 0);
+
+      return {
+        label: formatEventType(eventType),
+        data,
+        backgroundColor: colors[index % colors.length],
+        borderColor: colors[index % colors.length],
+        borderWidth: 1
+      };
+    });
+
+    console.log(`[DEBUG] Crosstab stacked chart: ${labels.length} categories, ${datasets.length} event types`);
+  }
 
   return {
     type: 'bar',
@@ -649,8 +703,7 @@ serve(async (req: Request) => {
       }
 
       // Check if we should use crosstab endpoint (categories on X with event type breakdown)
-      // BUT: if diffsGroupByCategory is true, use regular diffs endpoint with aggregation instead
-      if (chartConfig.diffsChartMode === 'categories' && chartConfig.diffsBreakdown === 'category' && !chartConfig.diffsGroupByCategory) {
+      if (chartConfig.diffsChartMode === 'categories' && chartConfig.diffsBreakdown === 'category') {
         console.log('[DEBUG] Using crosstab endpoint for category + event_type breakdown');
         const data = await fetchCrosstabData(chartConfig, analyticsApiKey);
         console.log('[DEBUG] Fetched crosstab data, transforming to stacked chart');
