@@ -98,6 +98,14 @@ const EVENT_CATEGORIES: Record<string, string[]> = {
   ]
 };
 
+// Inverse mapping: event_type -> category
+const EVENT_TYPE_TO_CATEGORY: Record<string, string> = {};
+for (const [category, eventTypes] of Object.entries(EVENT_CATEGORIES)) {
+  for (const eventType of eventTypes) {
+    EVENT_TYPE_TO_CATEGORY[eventType] = category;
+  }
+}
+
 // Filter event types by category
 function filterEventsByCategory(
   eventTypeData: Record<string, any>,
@@ -123,6 +131,49 @@ function filterEventsByCategory(
   console.log(`[DEBUG] Filtered from ${Object.keys(eventTypeData).length} to ${Object.keys(filtered).length} event types (category: ${category})`);
 
   return filtered;
+}
+
+// Aggregate event types into categories
+function aggregateEventsByCategory(eventTypeData: Record<string, any>): Record<string, any> {
+  const categoryData: Record<string, any> = {
+    pricing: {},
+    packaging: {},
+    product: {}
+  };
+
+  // Iterate through all event types
+  for (const [eventType, periodData] of Object.entries(eventTypeData)) {
+    const category = EVENT_TYPE_TO_CATEGORY[eventType];
+
+    if (!category) {
+      console.warn(`Unknown event type: ${eventType}, skipping`);
+      continue;
+    }
+
+    // Sum counts for each period into the category
+    for (const [period, value] of Object.entries(periodData as Record<string, any>)) {
+      if (!categoryData[category][period]) {
+        categoryData[category][period] = { total_events: 0 };
+      }
+
+      // Add count from this event type to the category total
+      // Handle both object format {count: N} and primitive number format
+      let countToAdd = 0;
+      if (typeof value === 'number') {
+        countToAdd = value;
+      } else if (typeof value === 'object' && value !== null) {
+        countToAdd = value.count || 0;
+      }
+      categoryData[category][period].total_events += countToAdd;
+    }
+  }
+
+  // Add category_name field for display
+  categoryData.pricing.category_name = 'Pricing';
+  categoryData.packaging.category_name = 'Packaging';
+  categoryData.product.category_name = 'Product';
+
+  return categoryData;
 }
 
 // Transform diffs API response to Chart.js format (periods on X-axis)
@@ -219,6 +270,22 @@ function transformDiffsToChartJs(data: any, config: any) {
 
 // Transform diffs API response to Chart.js format (event types on X-axis)
 function transformDiffsToEventsChart(data: any, config: any) {
+  // Check if we should aggregate event types into categories FIRST
+  // When diffsGroupByCategory is true, always start from by_event_type data
+  if (config.diffsGroupByCategory === true) {
+    const eventTypeData = data.by_event_type || {};
+
+    // Aggregate event types into 3 categories
+    const breakdownData = aggregateEventsByCategory(eventTypeData);
+
+    // Override config to use category breakdown
+    config.diffsBreakdown = 'category';
+
+    // Continue with the aggregated data
+    return buildEventsChart(data, config, breakdownData);
+  }
+
+  // Normal path: use the breakdown specified in config
   const breakdownKey = `by_${config.diffsBreakdown || 'event_type'}`;
   let breakdownData = data[breakdownKey] || {};
 
@@ -226,6 +293,12 @@ function transformDiffsToEventsChart(data: any, config: any) {
   if (config.diffsEventCategory && config.diffsEventCategory !== 'all') {
     breakdownData = filterEventsByCategory(breakdownData, config.diffsEventCategory);
   }
+
+  return buildEventsChart(data, config, breakdownData);
+}
+
+// Helper function to build the events chart from breakdown data
+function buildEventsChart(data: any, config: any, breakdownData: Record<string, any>) {
 
   // Format period labels (e.g., "2024Q1" -> "2024 Q1", "2024" stays "2024")
   const formatPeriod = (period: string) => {
@@ -249,7 +322,10 @@ function transformDiffsToEventsChart(data: any, config: any) {
   const normalizedPeriods = rawPeriods.map(normalizePeriod);
 
   // Calculate totals for each event type and sort by total descending
-  const eventTypesWithTotals = Object.entries(breakdownData).map(([eventType, periodData]: [string, any]) => {
+  // Filter out debug keys
+  const eventTypesWithTotals = Object.entries(breakdownData)
+    .filter(([key]) => !key.startsWith('_'))
+    .map(([eventType, periodData]: [string, any]) => {
     const total = normalizedPeriods.reduce((sum, period) => {
       const value = periodData[period];
       if (!value) return sum;
@@ -313,8 +389,6 @@ function transformDiffsToEventsChart(data: any, config: any) {
       borderWidth: 1
     };
   });
-
-  console.log(`[DEBUG] Events chart: ${labels.length} event types, ${datasets.length} periods`);
 
   return {
     type: 'bar',
@@ -544,15 +618,20 @@ serve(async (req: Request) => {
       }
 
       // Check if we should use crosstab endpoint (categories on X with event type breakdown)
-      if (chartConfig.diffsChartMode === 'categories' && chartConfig.diffsBreakdown === 'category') {
+      // BUT: if diffsGroupByCategory is true, use regular diffs endpoint with aggregation instead
+      if (chartConfig.diffsChartMode === 'categories' && chartConfig.diffsBreakdown === 'category' && !chartConfig.diffsGroupByCategory) {
         console.log('[DEBUG] Using crosstab endpoint for category + event_type breakdown');
         const data = await fetchCrosstabData(chartConfig, analyticsApiKey);
         console.log('[DEBUG] Fetched crosstab data, transforming to stacked chart');
         finalChartConfig = transformCrosstabToStackedChart(data, chartConfig);
       } else {
         // Fetch data from regular diffs API
-        const data = await fetchDiffsData(chartConfig, analyticsApiKey);
-        console.log('[DEBUG] Fetched diffs data, transforming to Chart.js format');
+        // If diffsGroupByCategory is true, force breakdown to event_type
+        const configForFetch = chartConfig.diffsGroupByCategory
+          ? { ...chartConfig, diffsBreakdown: 'event_type' }
+          : chartConfig;
+
+        const data = await fetchDiffsData(configForFetch, analyticsApiKey);
 
         // Check if this is a stacked chart (categories on X-axis, periods stacked)
         if (chartConfig.diffsChartMode === 'categories_stacked') {

@@ -398,6 +398,33 @@ export function App() {
       return false;
     }
 
+    // For S3 URLs, skip HEAD request and go straight to Image() validation
+    // S3 often blocks CORS HEAD requests but allows GET for images
+    if (url.includes('amazonaws.com') || url.includes('.s3.')) {
+      console.log('[validateImageUrl] S3 URL detected, using Image() validation:', url);
+      try {
+        return await new Promise<boolean>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            console.log('[validateImageUrl] S3 image loaded successfully');
+            resolve(true);
+          };
+          img.onerror = () => {
+            console.error('[validateImageUrl] S3 image failed to load');
+            resolve(false);
+          };
+          img.src = url;
+          setTimeout(() => {
+            console.error('[validateImageUrl] S3 image validation timed out');
+            resolve(false);
+          }, 10000); // Longer timeout for S3
+        });
+      } catch (error) {
+        console.error('[validateImageUrl] S3 validation error:', error);
+        return false;
+      }
+    }
+
     try {
       // First try a proper HTTP HEAD request (without no-cors)
       const controller = new AbortController();
@@ -502,6 +529,100 @@ export function App() {
     return url;
   };
 
+  const stripCloudinaryAnnotations = (url: string): string => {
+    // Strip annotation overlays (l_*, fl_layer_apply) from Cloudinary URLs
+    // while preserving crop (c_crop), quality (q_auto), and format (f_auto) transformations
+    // Standard practice: annotations are for markup/preview, not final delivery
+
+    if (!url.includes('cloudinary.com') || !url.includes('fl_layer_apply')) {
+      return url; // No annotations to strip
+    }
+
+    try {
+      // Parse Cloudinary URL structure:
+      // https://res.cloudinary.com/{cloud}/image/upload/{transformations}/{version}/{path}
+      const uploadIndex = url.indexOf('/image/upload/');
+      if (uploadIndex === -1) return url;
+
+      const beforeUpload = url.substring(0, uploadIndex + '/image/upload/'.length);
+      const afterUpload = url.substring(uploadIndex + '/image/upload/'.length);
+
+      // Split transformations by '/' - version starts with 'v' followed by digits
+      const parts = afterUpload.split('/');
+      const versionIndex = parts.findIndex(part => /^v\d+$/.test(part));
+
+      if (versionIndex === -1) return url; // Can't parse, return original
+
+      const transformations = parts.slice(0, versionIndex);
+      const versionAndPath = parts.slice(versionIndex).join('/');
+
+      // Filter out annotation layers
+      // An annotation layer typically spans from l_ to fl_layer_apply plus positioning
+      const cleanedTransformations: string[] = [];
+      let inLayer = false;
+
+      for (const transformation of transformations) {
+        const params = transformation.split(',');
+        const filteredParams: string[] = [];
+
+        for (const param of params) {
+          // Start of layer overlay
+          if (param.startsWith('l_')) {
+            inLayer = true;
+            continue;
+          }
+
+          // End of layer overlay
+          if (param === 'fl_layer_apply') {
+            inLayer = false;
+            continue;
+          }
+
+          // Skip positioning params after layer apply (g_, x_, y_, e_colorize, o_, bo_, w_, h_)
+          // but only if we were just in a layer
+          if (inLayer || (filteredParams.length === 0 && (
+            param.startsWith('g_') ||
+            param.startsWith('x_') ||
+            param.startsWith('y_') ||
+            param.startsWith('e_colorize') ||
+            param.startsWith('o_') ||
+            param.startsWith('bo_') ||
+            (param.startsWith('w_') && transformation.includes('l_')) ||
+            (param.startsWith('h_') && transformation.includes('l_'))
+          ))) {
+            continue;
+          }
+
+          // Keep non-layer parameters
+          if (!inLayer) {
+            filteredParams.push(param);
+          }
+        }
+
+        // Only add transformation group if it has remaining parameters
+        if (filteredParams.length > 0) {
+          cleanedTransformations.push(filteredParams.join(','));
+        }
+      }
+
+      // Reconstruct URL
+      const cleanedUrl = cleanedTransformations.length > 0
+        ? `${beforeUpload}${cleanedTransformations.join('/')}/${versionAndPath}`
+        : `${beforeUpload}${versionAndPath}`;
+
+      console.log('[stripCloudinaryAnnotations] Stripped annotations from URL:', {
+        original: url.substring(0, 100) + '...',
+        cleaned: cleanedUrl.substring(0, 100) + '...',
+        removedLayers: transformations.length - cleanedTransformations.length
+      });
+
+      return cleanedUrl;
+    } catch (error) {
+      console.error('[stripCloudinaryAnnotations] Error stripping annotations, using original URL:', error);
+      return url; // Fallback to original if parsing fails
+    }
+  };
+
   const detectActualMimeType = async (url: string): Promise<string> => {
     try {
       const controller = new AbortController();
@@ -535,9 +656,11 @@ export function App() {
     let lastError: Error | null = null;
     let validUrls: string[] = [];
 
+    // Strip Cloudinary annotations from URLs (preserves crop/quality transformations)
+    const cleanedUrls = urls.map(stripCloudinaryAnnotations);
 
     // Validate all URLs first
-    for (const url of urls) {
+    for (const url of cleanedUrls) {
       const isValid = await validateImageUrl(url);
       if (isValid) {
         validUrls.push(url);

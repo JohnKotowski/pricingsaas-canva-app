@@ -111,6 +111,50 @@ function enrichTilesElement(element: ReportElement, summaryData: any): ReportEle
   }
 }
 
+// Enrich example elements with company logo URLs
+async function enrichExampleElement(element: ReportElement, supabase: any): Promise<ReportElement> {
+  try {
+    const content = JSON.parse(element.content);
+
+    // Extract company name or slug from config
+    const companyName = content.config?.companyName || content.config?.company_name;
+    const companySlug = content.config?.companySlug || content.config?.company_slug;
+
+    // If we have company info but no logo URL, fetch it from the database
+    if ((companyName || companySlug) && !content.config?.companyLogoUrl && !content.config?.company_logo_url) {
+      let query = supabase.from('companies').select('logo_url, slug');
+
+      // Query by slug if available, otherwise by name
+      if (companySlug) {
+        query = query.eq('slug', companySlug);
+      } else if (companyName) {
+        query = query.ilike('slug', companyName.toLowerCase().replace(/\s+/g, '-'));
+      }
+
+      const { data: companies } = await query.limit(1);
+
+      if (companies && companies.length > 0) {
+        const company = companies[0];
+        // Add company logo URL to config (convert HTTP to HTTPS for Cloudinary URLs)
+        let logoUrl = company.logo_url || '';
+        if (logoUrl.startsWith('http://res.cloudinary.com')) {
+          logoUrl = logoUrl.replace('http://', 'https://');
+        }
+        content.config.company_logo_url = logoUrl;
+        console.log(`[DEBUG] Enriched example element with logo for ${companySlug || companyName}: ${logoUrl}`);
+      }
+    }
+
+    return {
+      ...element,
+      content: JSON.stringify(content)
+    };
+  } catch (error) {
+    console.error('Error enriching example element:', error);
+    return element;
+  }
+}
+
 serve(async (req: Request) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
@@ -152,10 +196,12 @@ serve(async (req: Request) => {
       (reportsData || []).map(async (report: any) => {
         let elements = Array.isArray(report.elements) ? report.elements : [];
 
-        // Check if report has tiles elements and API key is available
+        // Check if report has tiles or example elements
         const hasTiles = elements.some((e: ReportElement) => e.type === 'tiles');
-        console.log(`[DEBUG] Report ${report.id}: hasTiles=${hasTiles}, hasApiKey=${!!analyticsApiKey}`);
+        const hasExamples = elements.some((e: ReportElement) => e.type === 'example');
+        console.log(`[DEBUG] Report ${report.id}: hasTiles=${hasTiles}, hasExamples=${hasExamples}, hasApiKey=${!!analyticsApiKey}`);
 
+        // Enrich tiles elements with API data
         if (hasTiles && analyticsApiKey) {
           try {
             console.log(`[DEBUG] Fetching summary data for report ${report.id} with set_definition:`, JSON.stringify(report.set_definition));
@@ -174,7 +220,7 @@ serve(async (req: Request) => {
               }
               return element;
             });
-            console.log(`[DEBUG] Enrichment completed successfully for report ${report.id}`);
+            console.log(`[DEBUG] Tiles enrichment completed successfully for report ${report.id}`);
           } catch (error) {
             console.error(`[ERROR] Failed to enrich tiles for report ${report.id}:`, error);
             console.error('[ERROR] Error details:', error instanceof Error ? error.message : String(error));
@@ -182,7 +228,26 @@ serve(async (req: Request) => {
             // Continue without enrichment if API call fails
           }
         } else {
-          console.log(`[DEBUG] Skipping enrichment: hasTiles=${hasTiles}, hasApiKey=${!!analyticsApiKey}`);
+          console.log(`[DEBUG] Skipping tiles enrichment: hasTiles=${hasTiles}, hasApiKey=${!!analyticsApiKey}`);
+        }
+
+        // Enrich example elements with company logos
+        if (hasExamples) {
+          try {
+            console.log(`[DEBUG] Enriching example elements for report ${report.id}`);
+            elements = await Promise.all(
+              elements.map(async (element: ReportElement) => {
+                if (element.type === 'example') {
+                  return await enrichExampleElement(element, supabase);
+                }
+                return element;
+              })
+            );
+            console.log(`[DEBUG] Example enrichment completed successfully for report ${report.id}`);
+          } catch (error) {
+            console.error(`[ERROR] Failed to enrich examples for report ${report.id}:`, error);
+            // Continue without enrichment if query fails
+          }
         }
 
         return {

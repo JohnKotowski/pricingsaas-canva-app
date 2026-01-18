@@ -1,4 +1,4 @@
-import { addPage, addElementAtPoint, addElementAtCursor } from "@canva/design";
+import { addPage, addElementAtPoint, addElementAtCursor, createRichtextRange } from "@canva/design";
 import { features } from "@canva/platform";
 
 // Helper delay function
@@ -69,28 +69,33 @@ async function addBrandingElements(
   uploadWithRetry?: (urls: string[], options: any) => Promise<any>
 ) {
   const branding = getScaledBranding(designWidth, designHeight);
-  const footerY = designHeight - branding.footerHeight;
+
+  // Fixed footer dimensions and position
+  const footerWidth = 2239.7;
+  const footerHeight = 708.2;
+  const footerX = -169.6;
+  const footerY = 717.9;
 
   // 1. Add footer bar rectangle
   const footerBar = {
     type: "shape" as const,
     paths: [
       {
-        d: `M 0 0 L ${designWidth} 0 L ${designWidth} ${branding.footerHeight} L 0 ${branding.footerHeight} Z`,
+        d: `M 0 0 L ${footerWidth} 0 L ${footerWidth} ${footerHeight} L 0 ${footerHeight} Z`,
         fill: {
           color: "#132442"
         }
       }
     ],
     top: footerY,
-    left: 0,
-    width: designWidth,
-    height: branding.footerHeight,
+    left: footerX,
+    width: footerWidth,
+    height: footerHeight,
     viewBox: {
       top: 0,
       left: 0,
-      width: designWidth,
-      height: branding.footerHeight
+      width: footerWidth,
+      height: footerHeight
     }
   };
   await addElement(footerBar);
@@ -104,17 +109,21 @@ async function addBrandingElements(
         aiDisclosure: "none"
       });
 
-      const logoX = designWidth - branding.logoWidth - branding.logoMarginRight;
-      const logoY = footerY + (branding.footerHeight / 2) - (branding.logoHeight / 2);
+      // Fixed logo/curated by area positioning (bottom right)
+      const brandingAreaX = 1196.2;
+      const brandingAreaY = 983.6;
+      const brandingAreaWidth = 577.8;
+      const brandingAreaHeight = 44;
 
+      // Logo dimensions and position
       const logoElement = {
         type: "image" as const,
         ref: logoUpload.ref,
         altText: { text: "PricingSaaS", decorative: true },
-        top: logoY,
-        left: logoX,
-        width: branding.logoWidth,
-        height: branding.logoHeight
+        top: 972,
+        left: 1571.8,
+        width: 240.2,
+        height: 44
       };
       await addElement(logoElement);
 
@@ -122,15 +131,39 @@ async function addBrandingElements(
       const curatedByElement = {
         type: "text" as const,
         children: ["Curated by"],
-        top: footerY + (branding.footerHeight / 2) - 10,
-        left: logoX - branding.curatedByWidth - 15,
-        width: branding.curatedByWidth,
+        top: 979.9,
+        left: 1415.6,
+        width: 156.1,
+        height: 30.8,
         fontSize: branding.curatedByFontSize,
         fontWeight: "normal" as const,
         color: "#E4E4E4",
-        textAlign: "end" as const
+        textAlign: "start" as const
       };
       await addElement(curatedByElement);
+
+      // 4. Add circular gradient graphic
+      try {
+        const circleGraphicUrl = 'https://res.cloudinary.com/dd6dkaan9/image/upload/v1768703531/footer-circular-gradient-v2.png';
+        const circleGraphicUpload = await uploadWithRetry([circleGraphicUrl], {
+          type: "image",
+          aiDisclosure: "none"
+        });
+
+        const circleGraphicElement = {
+          type: "image" as const,
+          ref: circleGraphicUpload.ref,
+          altText: { text: "Decorative Gradient", decorative: true },
+          top: 829.9,
+          left: -858.3,
+          width: 1245.5,
+          height: 1245.5
+        };
+        await addElement(circleGraphicElement);
+      } catch (error) {
+        console.error('Error adding circular gradient graphic:', error);
+        // Continue without graphic if it fails
+      }
 
     } catch (error) {
       console.error('Error adding logo branding:', error);
@@ -166,6 +199,9 @@ export async function createTitleElementSlide(
 
   await delay(500);
 
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
+
   const titleElement = {
     type: "text" as const,
     children: [titleText],
@@ -179,9 +215,6 @@ export async function createTitleElementSlide(
   };
 
   await addElement(titleElement);
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -210,6 +243,9 @@ export async function createTextElementSlide(
   });
 
   await delay(500);
+
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 
   // Split into paragraphs (basic markdown handling)
   const paragraphs = text.split('\n\n').filter((p: string) => p.trim());
@@ -241,9 +277,6 @@ export async function createTextElementSlide(
     await addElement(textElement);
     currentY += lineHeight;
   }
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -273,6 +306,9 @@ export async function createSectionHeaderSlide(
 
   await delay(500);
 
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
+
   const headerElement = {
     type: "text" as const,
     children: [headerText],
@@ -286,9 +322,6 @@ export async function createSectionHeaderSlide(
   };
 
   await addElement(headerElement);
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -320,106 +353,372 @@ export async function createExampleSlide(
 
   await delay(500);
 
-  // Calculate layout - adjust for footer
-  const imageWidth = (designWidth - 60) / 2;
-  const maxContentHeight = designHeight - 100; // Leave room for footer
-  const imageHeight = Math.min(400, maxContentHeight - 200);
-  const topMargin = 100;
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
+
+  // Add "2025 Q2" badge (simple rectangle)
+  const badgeWidth = 220.8;
+  const badgeHeight = 63.8;
+  const badgeX = 90.4;
+  const badgeY = 156.9;
+
+  // Create rectangle background
+  const badgeBackground = {
+    type: "shape" as const,
+    paths: [{
+      d: `M 0 0 L ${badgeWidth} 0 L ${badgeWidth} ${badgeHeight} L 0 ${badgeHeight} Z`,
+      fill: { color: "#D3D3D3" }
+    }],
+    top: badgeY,
+    left: badgeX,
+    width: badgeWidth,
+    height: badgeHeight,
+    viewBox: { top: 0, left: 0, width: badgeWidth, height: badgeHeight }
+  };
+  await addElement(badgeBackground);
+
+  // Add "2025 Q2" text on top of badge
+  const badgeTextElement = {
+    type: "text" as const,
+    children: ["2025 Q2"],
+    top: badgeY + 12,
+    left: badgeX + 10,
+    width: badgeWidth - 20,
+    fontSize: 28,
+    fontWeight: "bold" as const,
+    color: "#191919",
+    textAlign: "center" as const
+  };
+  await addElement(badgeTextElement);
+
+  // Calculate layout with 470:300 ratio
+  const imageRatio = 470 / 300; // 1.5667
+  const sideMargin = 80;
+  const centerGap = 60;
+  const imageWidth = 850; // Fixed width for consistent layout
+  const imageHeight = imageWidth * (300 / 470); // 542.5px
+  const imageTop = 270;
+
+  // Positions
+  const beforeImageLeft = sideMargin;
+  const afterImageLeft = sideMargin + imageWidth + centerGap; // 990
 
   try {
-    // Upload images
-    const beforeUrl = config.beforeImageUrl || config.before_image_url;
-    const afterUrl = config.afterImageUrl || config.after_image_url;
+    // Upload images - prefer cropped URLs, fallback to generic fields
+    const beforeUrl = config.primary_cropped_url || config.beforeImageUrl || config.before_image_url;
+    const afterUrl = config.secondary_cropped_url || config.afterImageUrl || config.after_image_url;
 
     if (!beforeUrl || !afterUrl) {
       throw new Error('Missing before/after image URLs');
     }
 
-    const beforeUpload = await uploadWithRetry([beforeUrl], {
-      type: "image",
-      aiDisclosure: "none"
-    });
+    console.log('[createExampleSlide] Uploading before image:', beforeUrl);
+    let beforeUpload;
+    try {
+      beforeUpload = await uploadWithRetry([beforeUrl], {
+        type: "image",
+        aiDisclosure: "none"
+      });
+    } catch (error) {
+      console.error('[createExampleSlide] Failed to upload before image:', beforeUrl, error);
+      throw new Error(`Failed to upload before image from ${beforeUrl.substring(0, 100)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
-    const afterUpload = await uploadWithRetry([afterUrl], {
-      type: "image",
-      aiDisclosure: "none"
-    });
+    console.log('[createExampleSlide] Uploading after image:', afterUrl);
+    let afterUpload;
+    try {
+      afterUpload = await uploadWithRetry([afterUrl], {
+        type: "image",
+        aiDisclosure: "none"
+      });
+    } catch (error) {
+      console.error('[createExampleSlide] Failed to upload after image:', afterUrl, error);
+      throw new Error(`Failed to upload after image from ${afterUrl.substring(0, 100)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
-    // Before label
+    // Extract dates from image URLs (format: filename_YYYYMMDD.ext)
+    const extractDateFromUrl = (url: string): string | null => {
+      const match = url.match(/_(\d{8})\.[a-z]+/i);
+      if (match) {
+        const dateStr = match[1]; // YYYYMMDD
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+
+        // Format as "Month Day, Year"
+        const date = new Date(`${year}-${month}-${day}`);
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                           'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${monthNames[date.getMonth()]} ${parseInt(day)}, ${year}`;
+      }
+      return null;
+    };
+
+    // Get dates from URLs, fallback to config, then simple labels
+    const beforeDate = extractDateFromUrl(beforeUrl) ||
+                       config.beforeDate ||
+                       config.before_date ||
+                       "Before";
+    const afterDate = extractDateFromUrl(afterUrl) ||
+                      config.afterDate ||
+                      config.after_date ||
+                      "After";
+
+    // Date label dimensions and positions
+    const dateLabelWidth = 220;
+    const dateLabelHeight = 50;
+    const dateLabelGap = 15; // Gap between image bottom and date label
+
+    // Center labels under their respective images
+    const beforeDateBgX = beforeImageLeft + (imageWidth - dateLabelWidth) / 2; // 395
+    const beforeDateBgY = imageTop + imageHeight + dateLabelGap;
+
+    const afterDateBgX = afterImageLeft + (imageWidth - dateLabelWidth) / 2; // 1305
+    const afterDateBgY = imageTop + imageHeight + dateLabelGap;
+
+    // Add date label backgrounds (below images)
+    const beforeDateBackground = {
+      type: "shape" as const,
+      paths: [{
+        d: `M 0 0 L ${dateLabelWidth} 0 L ${dateLabelWidth} ${dateLabelHeight} L 0 ${dateLabelHeight} Z`,
+        fill: { color: "#d3df66" }
+      }],
+      top: beforeDateBgY,
+      left: beforeDateBgX,
+      width: dateLabelWidth,
+      height: dateLabelHeight,
+      viewBox: { top: 0, left: 0, width: dateLabelWidth, height: dateLabelHeight }
+    };
+    await addElement(beforeDateBackground);
+
+    // Before date label text
     const beforeLabelElement = {
       type: "text" as const,
-      children: ["Before"],
-      top: topMargin - 40,
-      left: 20,
-      width: imageWidth,
-      fontSize: 24,
+      children: [beforeDate],
+      top: beforeDateBgY + 10,
+      left: beforeDateBgX + 10,
+      width: dateLabelWidth - 20,
+      fontSize: 20,
       fontWeight: "bold" as const,
       color: "#191919",
       textAlign: "center" as const
     };
     await addElement(beforeLabelElement);
 
-    // Before image
-    const beforeImageElement = {
-      type: "image" as const,
-      ref: beforeUpload.ref,
-      altText: { text: "Before", decorative: false },
-      top: topMargin,
-      left: 20,
-      width: imageWidth,
-      height: imageHeight
+    const afterDateBackground = {
+      type: "shape" as const,
+      paths: [{
+        d: `M 0 0 L ${dateLabelWidth} 0 L ${dateLabelWidth} ${dateLabelHeight} L 0 ${dateLabelHeight} Z`,
+        fill: { color: "#d3df66" }
+      }],
+      top: afterDateBgY,
+      left: afterDateBgX,
+      width: dateLabelWidth,
+      height: dateLabelHeight,
+      viewBox: { top: 0, left: 0, width: dateLabelWidth, height: dateLabelHeight }
     };
-    await addElement(beforeImageElement);
+    await addElement(afterDateBackground);
 
-    // After label
+    // After date label text
     const afterLabelElement = {
       type: "text" as const,
-      children: ["After"],
-      top: topMargin - 40,
-      left: 30 + imageWidth,
-      width: imageWidth,
-      fontSize: 24,
+      children: [afterDate],
+      top: afterDateBgY + 10,
+      left: afterDateBgX + 10,
+      width: dateLabelWidth - 20,
+      fontSize: 20,
       fontWeight: "bold" as const,
       color: "#191919",
       textAlign: "center" as const
     };
     await addElement(afterLabelElement);
 
+    // Add light lime header background
+    const headerBackground = {
+      type: "shape" as const,
+      paths: [{
+        d: `M 0 0 L 2005.7 0 L 2005.7 309.9 L 0 309.9 Z`,
+        fill: { color: "#d3df66" }
+      }],
+      top: -198.3,
+      left: 0,
+      width: 2005.7,
+      height: 309.9,
+      viewBox: { top: 0, left: 0, width: 2005.7, height: 309.9 }
+    };
+    await addElement(headerBackground);
+
+    // Add header text (e.g., "Case Study: ...")
+    const headerText = config.header || '';
+    if (headerText) {
+      const headerTextElement = {
+        type: "text" as const,
+        children: [headerText],
+        top: 38.2,
+        left: 94.7,
+        width: 1744.6,
+        fontSize: 34,
+        fontWeight: "bold" as const,
+        color: "#7A7A7A", // Gray color from the image
+        textAlign: "start" as const
+      };
+      await addElement(headerTextElement);
+    }
+
+    // Add circular gradient graphic to header (right side)
+    try {
+      const headerCircleGraphicUrl = 'https://res.cloudinary.com/dd6dkaan9/image/upload/v1768703531/footer-circular-gradient-v2.png';
+      const headerCircleGraphicUpload = await uploadWithRetry([headerCircleGraphicUrl], {
+        type: "image",
+        aiDisclosure: "none"
+      });
+
+      const headerCircleGraphicElement = {
+        type: "image" as const,
+        ref: headerCircleGraphicUpload.ref,
+        altText: { text: "Decorative Gradient", decorative: true },
+        top: -365.6,
+        left: 1528.6,
+        width: 1245.5,
+        height: 1245.5
+      };
+      await addElement(headerCircleGraphicElement);
+    } catch (error) {
+      console.error('Error adding header circular gradient graphic:', error);
+    }
+
+    // Caption with dynamic font sizing based on length
+    if (caption) {
+      // Calculate font size based on caption length (optimized for 1920x1080)
+      let fontSize = 24; // Default for short captions
+      const captionLength = caption.length;
+
+      if (captionLength > 200) {
+        fontSize = 16; // Long captions
+      } else if (captionLength > 120) {
+        fontSize = 20; // Medium-long captions
+      } else if (captionLength > 60) {
+        fontSize = 22; // Medium captions
+      }
+
+      const captionElement = {
+        type: "text" as const,
+        children: [caption],
+        top: 164.1,
+        left: 345.7,
+        width: 1228.6, // Width to fit between left margin and right edge
+        fontSize: fontSize,
+        fontWeight: "normal" as const,
+        color: "#191919",
+        textAlign: "start" as const
+      };
+      await addElement(captionElement);
+    }
+
+    // Add company name to footer (if available)
+    const companyName = config.companyName || config.company_name;
+    if (companyName) {
+      const branding = getScaledBranding(designWidth, designHeight);
+      const companyNameElement = {
+        type: "text" as const,
+        children: [companyName],
+        top: 983.6,
+        left: 271.3,
+        width: 156.1,
+        height: 30.8,
+        fontSize: branding.curatedByFontSize,
+        fontWeight: "normal" as const,
+        color: "#E4E4E4",
+        textAlign: "start" as const
+      };
+      await addElement(companyNameElement);
+    }
+
+    // Add company logo to footer (if available)
+    const companyLogoUrl = config.companyLogoUrl || config.company_logo_url;
+    if (companyLogoUrl) {
+      try {
+        const logoUpload = await uploadWithRetry([companyLogoUrl], {
+          type: "image",
+          aiDisclosure: "none"
+        });
+
+        const companyLogoElement = {
+          type: "image" as const,
+          ref: logoUpload.ref,
+          altText: { text: `${companyName || 'Company'} logo`, decorative: true },
+          top: 969.6,
+          left: 190.4,
+          width: 58,
+          height: 58
+        };
+        await addElement(companyLogoElement);
+      } catch (error) {
+        console.error('Error adding company logo to footer:', error);
+        // Continue without logo if it fails
+      }
+    }
+
+    // Add images LAST to ensure they appear on top layer
+    // Before image border (1px grey)
+    const borderWidth = 2; // 1px on each side
+    const beforeBorderElement = {
+      type: "shape" as const,
+      paths: [{
+        d: `M 0 0 L ${imageWidth + borderWidth} 0 L ${imageWidth + borderWidth} ${imageHeight + borderWidth} L 0 ${imageHeight + borderWidth} Z`,
+        fill: { color: "#CCCCCC" }
+      }],
+      top: imageTop - 1,
+      left: beforeImageLeft - 1,
+      width: imageWidth + borderWidth,
+      height: imageHeight + borderWidth,
+      viewBox: { top: 0, left: 0, width: imageWidth + borderWidth, height: imageHeight + borderWidth }
+    };
+    await addElement(beforeBorderElement);
+
+    // Before image
+    const beforeImageElement = {
+      type: "image" as const,
+      ref: beforeUpload.ref,
+      altText: { text: beforeDate, decorative: false },
+      top: imageTop,
+      left: beforeImageLeft,
+      width: imageWidth,
+      height: imageHeight
+    };
+    await addElement(beforeImageElement);
+
+    // After image border (1px grey)
+    const afterBorderElement = {
+      type: "shape" as const,
+      paths: [{
+        d: `M 0 0 L ${imageWidth + borderWidth} 0 L ${imageWidth + borderWidth} ${imageHeight + borderWidth} L 0 ${imageHeight + borderWidth} Z`,
+        fill: { color: "#CCCCCC" }
+      }],
+      top: imageTop - 1,
+      left: afterImageLeft - 1,
+      width: imageWidth + borderWidth,
+      height: imageHeight + borderWidth,
+      viewBox: { top: 0, left: 0, width: imageWidth + borderWidth, height: imageHeight + borderWidth }
+    };
+    await addElement(afterBorderElement);
+
     // After image
     const afterImageElement = {
       type: "image" as const,
       ref: afterUpload.ref,
-      altText: { text: "After", decorative: false },
-      top: topMargin,
-      left: 30 + imageWidth,
+      altText: { text: afterDate, decorative: false },
+      top: imageTop,
+      left: afterImageLeft,
       width: imageWidth,
       height: imageHeight
     };
     await addElement(afterImageElement);
 
-    // Caption
-    if (caption) {
-      const captionElement = {
-        type: "text" as const,
-        children: [caption],
-        top: topMargin + imageHeight + 20,
-        left: 20,
-        width: designWidth - 40,
-        fontSize: 18,
-        fontWeight: "normal" as const,
-        color: "#666666",
-        textAlign: "center" as const
-      };
-      await addElement(captionElement);
-    }
-
   } catch (error) {
     console.error('Error creating example slide:', error);
     throw error;
   }
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -452,6 +751,9 @@ export async function createTilesSlide(
   });
 
   await delay(500);
+
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 
   // Add title
   const titleElement = {
@@ -574,9 +876,6 @@ export async function createTilesSlide(
     };
     await addElement(labelElement);
   }
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -586,6 +885,20 @@ function truncateText(text: string, maxLength: number): string {
   if (!text || text === '') return '—';
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 3) + '...';
+}
+
+function formatPeriod(period: string): string {
+  // Format periods like "2025Q3" to "2025 Q3"
+  if (!period) return '—';
+
+  // Match pattern: 4 digits followed by Q and 1 digit (e.g., 2025Q3)
+  const match = period.match(/^(\d{4})Q(\d)$/);
+  if (match) {
+    return `${match[1]} Q${match[2]}`;
+  }
+
+  // Return as-is if already formatted or doesn't match pattern
+  return period;
 }
 
 function createRectangle(x: number, y: number, w: number, h: number, color: string) {
@@ -617,6 +930,26 @@ function createText(text: string, x: number, y: number, w: number, fontSize: num
   };
 }
 
+function createRichtext(text: string, x: number, y: number, w: number, fontSize: number, fontWeight: 'bold' | 'normal', color: string, link: string) {
+  const range = createRichtextRange();
+  range.appendText(text, {
+    link: link,
+    decoration: "underline",
+    color: color,
+    fontWeight: fontWeight,
+  });
+
+  return {
+    type: "richtext" as const,
+    range: range,
+    top: y,
+    left: x,
+    width: w,
+    fontSize,
+    textAlign: "start" as const
+  };
+}
+
 function createBorderLine(x: number, y: number, w: number, h: number, color: string) {
   return createRectangle(x, y, w, h, color);
 }
@@ -644,7 +977,7 @@ export async function createTableSlide(
   const config = parsed.config || parsed;
   const title = config.title || 'Table';
   const rows = config.rows || [];
-  const displayRows = rows.slice(0, 5); // Limit to 5 rows
+  const displayRows = rows.slice(0, 6); // Limit to 6 rows (optimized for 1920x1080)
 
   console.log('Parsed table:', { title, rowCount: rows.length, displayRowCount: displayRows.length });
 
@@ -660,13 +993,16 @@ export async function createTableSlide(
 
   await delay(500);
 
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
+
   const titleElement = {
     type: "text" as const,
     children: [title],
-    top: 40,
+    top: 70,
     left: designWidth * 0.1,
     width: designWidth * 0.8,
-    fontSize: 28,
+    fontSize: 50,
     fontWeight: "bold" as const,
     color: "#191919",
     textAlign: "center" as const
@@ -674,10 +1010,10 @@ export async function createTableSlide(
   await addElement(titleElement);
   await delay(300);
 
-  // 3. Calculate table layout
-  const tableStartY = 120; // Below title
-  const headerHeight = 50;
-  const rowHeight = 60;
+  // 3. Calculate table layout (optimized for 1920x1080)
+  const tableStartY = 200; // Below title
+  const headerHeight = 85;
+  const rowHeight = 105;
 
   // Calculate responsive table width with equal margins
   const horizontalMargin = Math.max(60, designWidth * 0.08);
@@ -716,10 +1052,10 @@ export async function createTableSlide(
     ));
     tableElements.push(createText(
       headers[col],
-      tableX + colStarts[col] + 8,
-      headerY + 8,
-      colWidths[col] - 16,
-      14,
+      tableX + colStarts[col] + 14,
+      headerY + 14,
+      colWidths[col] - 28,
+      24,
       'bold',
       '#FFFFFF'
     ));
@@ -733,9 +1069,9 @@ export async function createTableSlide(
 
     // Row data
     const cellData = [
-      truncateText(row.companyName || '—', 20),
-      truncateText(row.description || '—', 100),
-      row.period || '—',
+      truncateText(row.companyName || '—', 30),
+      row.description || '—', // No truncation for description
+      formatPeriod(row.period || '—'),
       'View Details' // Instead of full URL
     ];
 
@@ -749,29 +1085,39 @@ export async function createTableSlide(
       ));
 
       const textColor = col === 3 ? '#3B82F6' : '#191919';
-      tableElements.push(createText(
-        cellData[col],
-        tableX + colStarts[col] + 8,
-        rowY + 8,
-        colWidths[col] - 16,
-        11,
-        'normal',
-        textColor
-      ));
+      const linkUrl = col === 3 ? (row.compareViewerUrl || row.url || row.link || undefined) : undefined;
+
+      // Use richtext for column 3 with link, otherwise regular text
+      if (col === 3 && linkUrl) {
+        tableElements.push(createRichtext(
+          cellData[col],
+          tableX + colStarts[col] + 14,
+          rowY + 14,
+          colWidths[col] - 28,
+          18,
+          'normal',
+          textColor,
+          linkUrl
+        ));
+      } else {
+        tableElements.push(createText(
+          cellData[col],
+          tableX + colStarts[col] + 14,
+          rowY + 14,
+          colWidths[col] - 28,
+          18,
+          'normal',
+          textColor
+        ));
+      }
     }
   }
 
-  // 6. Border elements - simplified to just outer border + key dividers
+  // 6. Border elements - only divider between header and data
   const totalHeight = headerHeight + (displayRows.length * rowHeight);
 
-  // Outer border (4 lines - top, bottom, left, right)
-  tableElements.push(createBorderLine(tableX, tableStartY, totalWidth, 2, '#D1D5DB')); // Top
-  tableElements.push(createBorderLine(tableX, tableStartY + totalHeight, totalWidth, 2, '#D1D5DB')); // Bottom
-  tableElements.push(createBorderLine(tableX, tableStartY, 2, totalHeight, '#D1D5DB')); // Left
-  tableElements.push(createBorderLine(tableX + totalWidth - 2, tableStartY, 2, totalHeight, '#D1D5DB')); // Right
-
   // Divider between header and data
-  tableElements.push(createBorderLine(tableX, tableStartY + headerHeight, totalWidth, 2, '#D1D5DB'));
+  tableElements.push(createBorderLine(tableX, tableStartY + headerHeight, totalWidth, 3, '#D1D5DB'));
 
   // Add all table elements in chunks with rate limiting
   console.log(`Adding ${tableElements.length} table elements in chunks`);
@@ -782,12 +1128,7 @@ export async function createTableSlide(
     3000   // 3 second pause between chunks
   );
 
-  console.log('All table elements added, waiting 5 seconds before adding branding...');
-  await delay(5000);
-
-  // 7. Add branding footer
-  console.log('Adding branding footer');
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
+  console.log('All table elements added successfully');
 }
 
 /**
@@ -857,6 +1198,9 @@ export async function createGraphSlide(
   });
 
   await delay(500);
+
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 
   // 4. Add title
   const titleElement = {
@@ -928,9 +1272,6 @@ export async function createGraphSlide(
   await addElement(chartElement);
 
   console.log('[DEBUG] Chart image added to slide');
-
-  // 8. Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -949,6 +1290,9 @@ export async function createPlaceholderSlide(
   });
 
   await delay(500);
+
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 
   const typeElement = {
     type: "text" as const,
@@ -975,9 +1319,6 @@ export async function createPlaceholderSlide(
     textAlign: "center" as const
   };
   await addElement(messageElement);
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
 
 /**
@@ -996,6 +1337,9 @@ export async function createErrorSlide(
   });
 
   await delay(500);
+
+  // Add branding elements first (so they appear behind other content)
+  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 
   const errorTitleElement = {
     type: "text" as const,
@@ -1035,7 +1379,4 @@ export async function createErrorSlide(
     textAlign: "center" as const
   };
   await addElement(errorMessageElement);
-
-  // Add branding elements
-  await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 }
