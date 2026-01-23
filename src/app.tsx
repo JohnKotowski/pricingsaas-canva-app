@@ -16,6 +16,7 @@ import {
   createTextElementSlide,
   createSectionHeaderSlide,
   createExampleSlide,
+  insertExampleIntoSlide,
   createTilesSlide,
   createTableSlide,
   createGraphSlide,
@@ -283,7 +284,7 @@ export function App() {
   };
 
   // Import a single element and create slide
-  const importSingleElement = async (element: ReportElement, index: number) => {
+  const importSingleElement = async (element: ReportElement, index: number, mode?: 'insert' | 'add') => {
     try {
       setImportingElementId(element.id);
 
@@ -302,7 +303,13 @@ export function App() {
           break;
 
         case 'example':
-          await createExampleSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          // Use mode parameter to determine insertion method
+          if (mode === 'insert') {
+            await insertExampleIntoSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          } else {
+            // Default to 'add' mode (create new slide)
+            await createExampleSlide(element.content, designWidth, designHeight, uploadWithRetry);
+          }
           break;
 
         case 'tiles':
@@ -353,8 +360,8 @@ export function App() {
   };
 
   // Handle element selection - import single element
-  const handleSelectElement = (element: ReportElement, index: number) => {
-    importSingleElement(element, index);
+  const handleSelectElement = (element: ReportElement, index: number, mode?: 'insert' | 'add') => {
+    importSingleElement(element, index, mode);
   };
 
   // Go back to reports list

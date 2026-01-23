@@ -405,8 +405,8 @@ export async function createExampleSlide(
 
   try {
     // Get image URLs from config - prefer new cropped URLs (already at 1200x600)
-    let beforeUrl = config.beforeCroppedUrl || config.beforeImageUrl || config.before_image_url;
-    let afterUrl = config.afterCroppedUrl || config.afterImageUrl || config.after_image_url;
+    let beforeUrl = config.beforeCropUrl || config.beforeCroppedUrl || config.beforeImageUrl || config.before_image_url;
+    let afterUrl = config.afterCropUrl || config.afterCroppedUrl || config.afterImageUrl || config.after_image_url;
 
     if (!beforeUrl || !afterUrl) {
       throw new Error('Missing before/after image URLs');
@@ -421,8 +421,8 @@ export async function createExampleSlide(
     }
 
     // Get markers (optional red/green dots) - prefer cropped coordinates
-    const beforeMarker = config.beforeCroppedMarker || config.beforeMarker;
-    const afterMarker = config.afterCroppedMarker || config.afterMarker;
+    const beforeMarker = config.beforeCropMarker || config.beforeCroppedMarker || config.beforeMarker;
+    const afterMarker = config.afterCropMarker || config.afterCroppedMarker || config.afterMarker;
 
     console.log('[createExampleSlide] Uploading before image:', beforeUrl);
     let beforeUpload;
@@ -700,26 +700,27 @@ export async function createExampleSlide(
     };
     await addElement(beforeImageElement);
 
-    // Add before marker (red dot) if present
+    // Add before marker (blue right-pointing arrow) if present
     if (beforeMarker && beforeMarker.x !== undefined && beforeMarker.y !== undefined) {
-      const markerRadius = 12;
+      const markerWidth = 64;
+      const markerHeight = 64;
       const scaleFactor = imageWidth / 1200; // Scale from 1200px source to display width
       const markerX = beforeImageLeft + (beforeMarker.x * scaleFactor);
       const markerY = imageTop + (beforeMarker.y * scaleFactor);
 
-      const beforeMarkerCircle = {
+      const beforeMarkerArrow = {
         type: "shape" as const,
         paths: [{
-          d: `M ${markerRadius} 0 A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} ${markerRadius * 2} A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} 0 Z`,
-          fill: { color: "#ef4444" } // Red
+          d: `M 64 32 L 32 0 L 32 16 L 0 16 L 0 48 L 32 48 L 32 64 Z`,
+          fill: { color: "#3e5dc2" } // Blue
         }],
-        top: markerY - markerRadius,
-        left: markerX - markerRadius,
-        width: markerRadius * 2,
-        height: markerRadius * 2,
-        viewBox: { top: 0, left: 0, width: markerRadius * 2, height: markerRadius * 2 }
+        top: markerY - (markerHeight / 2),
+        left: markerX - markerWidth,
+        width: markerWidth,
+        height: markerHeight,
+        viewBox: { top: 0, left: 0, width: markerWidth, height: markerHeight }
       };
-      await addElement(beforeMarkerCircle);
+      await addElement(beforeMarkerArrow);
     }
 
     // After image border (1px grey)
@@ -749,30 +750,405 @@ export async function createExampleSlide(
     };
     await addElement(afterImageElement);
 
-    // Add after marker (green dot) if present
+    // Add after marker (dark lime right-pointing arrow) if present
     if (afterMarker && afterMarker.x !== undefined && afterMarker.y !== undefined) {
-      const markerRadius = 12;
+      const markerWidth = 64;
+      const markerHeight = 64;
       const scaleFactor = imageWidth / 1200; // Scale from 1200px source to display width
       const markerX = afterImageLeft + (afterMarker.x * scaleFactor);
       const markerY = imageTop + (afterMarker.y * scaleFactor);
 
-      const afterMarkerCircle = {
+      const afterMarkerArrow = {
         type: "shape" as const,
         paths: [{
-          d: `M ${markerRadius} 0 A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} ${markerRadius * 2} A ${markerRadius} ${markerRadius} 0 0 1 ${markerRadius} 0 Z`,
-          fill: { color: "#84cc16" } // Green
+          d: `M 64 32 L 32 0 L 32 16 L 0 16 L 0 48 L 32 48 L 32 64 Z`,
+          fill: { color: "#aebb36" } // Dark Lime
         }],
-        top: markerY - markerRadius,
-        left: markerX - markerRadius,
-        width: markerRadius * 2,
-        height: markerRadius * 2,
-        viewBox: { top: 0, left: 0, width: markerRadius * 2, height: markerRadius * 2 }
+        top: markerY - (markerHeight / 2),
+        left: markerX - markerWidth,
+        width: markerWidth,
+        height: markerHeight,
+        viewBox: { top: 0, left: 0, width: markerWidth, height: markerHeight }
       };
-      await addElement(afterMarkerCircle);
+      await addElement(afterMarkerArrow);
     }
 
   } catch (error) {
     console.error('Error creating example slide:', error);
+    throw error;
+  }
+}
+
+/**
+ * Inserts example elements into existing slide (compact layout)
+ */
+export async function insertExampleIntoSlide(
+  content: string,
+  designWidth: number,
+  designHeight: number,
+  uploadWithRetry: (urls: string[], options: any) => Promise<any>
+) {
+  console.log('insertExampleIntoSlide called with content:', content);
+
+  let config: any = {};
+  let title = 'Example';
+  let caption = '';
+
+  try {
+    // Try to parse as JSON first
+    const parsed = JSON.parse(content);
+    config = parsed.config || parsed;
+    title = config.header || 'Example';
+    caption = config.caption || '';
+  } catch {
+    // If not JSON, we can't create the example slide
+    throw new Error('Example element requires JSON config with image URLs');
+  }
+
+  try {
+    // Get image URLs from config - prefer new cropped URLs
+    let beforeUrl = config.beforeCropUrl || config.beforeCroppedUrl || config.beforeImageUrl || config.before_image_url;
+    let afterUrl = config.afterCropUrl || config.afterCroppedUrl || config.afterImageUrl || config.after_image_url;
+
+    if (!beforeUrl || !afterUrl) {
+      throw new Error('Missing before/after image URLs');
+    }
+
+    // Convert old S3 URLs to Cloudinary proxy format
+    if (beforeUrl.includes('s3.amazonaws.com')) {
+      beforeUrl = `https://res.cloudinary.com/pricing-explorer/image/fetch/${encodeURIComponent(beforeUrl)}`;
+    }
+    if (afterUrl.includes('s3.amazonaws.com')) {
+      afterUrl = `https://res.cloudinary.com/pricing-explorer/image/fetch/${encodeURIComponent(afterUrl)}`;
+    }
+
+    // Get markers (optional) - prefer cropped coordinates
+    const beforeMarker = config.beforeCropMarker || config.beforeCroppedMarker || config.beforeMarker;
+    const afterMarker = config.afterCropMarker || config.afterCroppedMarker || config.afterMarker;
+
+    console.log('[insertExampleIntoSlide] Uploading before image:', beforeUrl);
+    const beforeUpload = await uploadWithRetry([beforeUrl], {
+      type: "image",
+      aiDisclosure: "none"
+    });
+
+    console.log('[insertExampleIntoSlide] Uploading after image:', afterUrl);
+    const afterUpload = await uploadWithRetry([afterUrl], {
+      type: "image",
+      aiDisclosure: "none"
+    });
+
+    // Extract dates from image URLs
+    const extractDateFromUrl = (url: string): string | null => {
+      const match = url.match(/_(\d{8})\.[a-z]+/i);
+      if (match) {
+        const dateStr = match[1];
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        const date = new Date(`${year}-${month}-${day}`);
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                           'July', 'August', 'September', 'October', 'November', 'December'];
+        return `${monthNames[date.getMonth()]} ${parseInt(day)}, ${year}`;
+      }
+      return null;
+    };
+
+    const beforeDate = extractDateFromUrl(beforeUrl) || config.beforeDate || config.before_date || "Before";
+    const afterDate = extractDateFromUrl(afterUrl) || config.afterDate || config.after_date || "After";
+
+    // Extract quarter from config (e.g., "2025Q1" -> "2025 Q1")
+    let quarterText = config.quarter || config.period || "";
+    if (quarterText) {
+      const match = quarterText.match(/^(\d{4})Q(\d)$/);
+      if (match) {
+        quarterText = `${match[1]} Q${match[2]}`;
+      }
+    }
+
+    // Convert version dates from YYYYMMDD to formatted date
+    const convertVersionDate = (versionStr: string): string | null => {
+      if (!versionStr || versionStr.length !== 8) return null;
+
+      const year = versionStr.substring(0, 4);
+      const month = versionStr.substring(4, 6);
+      const day = versionStr.substring(6, 8);
+
+      const date = new Date(`${year}-${month}-${day}`);
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+      return `${monthNames[date.getMonth()]} ${parseInt(day)}, ${year}`;
+    };
+
+    const beforeVersionDate = config.beforeVersion ? convertVersionDate(config.beforeVersion) : null;
+    const afterVersionDate = config.afterVersion ? convertVersionDate(config.afterVersion) : null;
+
+    // 1. Add title
+    const titleElement = {
+      type: "text" as const,
+      children: [title],
+      top: 78.2,
+      left: 155.7,
+      width: 1225.1,
+      height: 42.8,
+      fontSize: 34,
+      fontWeight: "bold" as const,
+      fontFamily: "Aspekta",
+      color: "#FFFFFF",
+      textAlign: "start" as const
+    };
+    await addElement(titleElement);
+    await delay(200);
+
+    // 2. Add quarter/period text (if quarter text exists)
+    if (quarterText) {
+      const quarterTextElement = {
+        type: "text" as const,
+        children: [quarterText],
+        top: 156.7,
+        left: 183.9,
+        width: 186.3,
+        height: 37.6,
+        fontSize: 32,
+        fontWeight: "normal" as const,
+        fontFamily: "Aspekta",
+        color: "#131B3B",
+        textAlign: "center" as const
+      };
+      await addElement(quarterTextElement);
+      await delay(200);
+    }
+
+    // 3. Add description
+    if (caption) {
+      const descriptionElement = {
+        type: "text" as const,
+        children: [caption],
+        top: 144.7,
+        left: 459.8,
+        width: 1304.5,
+        height: 99.9,
+        fontSize: 26,
+        fontWeight: "normal" as const,
+        fontFamily: "Aspekta",
+        color: "#FFFFFF",
+        textAlign: "start" as const
+      };
+      await addElement(descriptionElement);
+      await delay(200);
+    }
+
+    // 4. Add before image
+    const beforeImageElement = {
+      type: "image" as const,
+      ref: beforeUpload.ref,
+      altText: { text: beforeDate, decorative: false },
+      top: 309.8,
+      left: 241.9,
+      width: 656.7,
+      height: 454
+    };
+    await addElement(beforeImageElement);
+    await delay(200);
+
+    // 5. Add before marker (if present)
+    if (beforeMarker && beforeMarker.x !== undefined && beforeMarker.y !== undefined) {
+      // Extract crop parameters from beforeCropUrl or beforeUrl
+      const cropUrl = config.beforeCropUrl || beforeUrl;
+      const cropMatch = cropUrl.match(/c_crop,x_(\d+),y_(\d+),w_(\d+),h_(\d+)/);
+
+      if (cropMatch) {
+        const cropX = parseInt(cropMatch[1]);
+        const cropY = parseInt(cropMatch[2]);
+        const cropWidth = parseInt(cropMatch[3]);
+        const cropHeight = parseInt(cropMatch[4]);
+
+        // Convert marker from full-image coordinates to cropped-image coordinates
+        const markerXInCrop = beforeMarker.x - cropX;
+        const markerYInCrop = beforeMarker.y - cropY;
+
+        // Check if marker is within crop bounds
+        if (markerXInCrop >= 0 && markerXInCrop <= cropWidth &&
+            markerYInCrop >= 0 && markerYInCrop <= cropHeight) {
+          const markerWidth = 64;
+          const markerHeight = 64;
+
+          // Scale from cropped image space to display space
+          const scaleFactor = 656.7 / cropWidth;
+          const markerX = 241.9 + (markerXInCrop * scaleFactor);
+          const markerY = 309.8 + (markerYInCrop * scaleFactor);
+
+          const beforeMarkerArrow = {
+            type: "shape" as const,
+            paths: [{
+              d: `M 64 32 L 32 0 L 32 16 L 0 16 L 0 48 L 32 48 L 32 64 Z`,
+              fill: { color: "#3e5dc2" }
+            }],
+            top: markerY - (markerHeight / 2),
+            left: markerX - markerWidth,
+            width: markerWidth,
+            height: markerHeight,
+            viewBox: { top: 0, left: 0, width: markerWidth, height: markerHeight }
+          };
+          await addElement(beforeMarkerArrow);
+          await delay(200);
+        } else {
+          console.log('[insertExampleIntoSlide] Before marker outside crop bounds, skipping');
+        }
+      } else {
+        console.log('[insertExampleIntoSlide] Could not extract crop parameters from URL, skipping before marker');
+      }
+    }
+
+    // 6. Add after image
+    const afterImageElement = {
+      type: "image" as const,
+      ref: afterUpload.ref,
+      altText: { text: afterDate, decorative: false },
+      top: 319,
+      left: 1022.4,
+      width: 647.4,
+      height: 444.7
+    };
+    await addElement(afterImageElement);
+    await delay(200);
+
+    // 7. Add after marker (if present)
+    if (afterMarker && afterMarker.x !== undefined && afterMarker.y !== undefined) {
+      // Extract crop parameters from afterCropUrl or afterUrl
+      const cropUrl = config.afterCropUrl || afterUrl;
+      const cropMatch = cropUrl.match(/c_crop,x_(\d+),y_(\d+),w_(\d+),h_(\d+)/);
+
+      if (cropMatch) {
+        const cropX = parseInt(cropMatch[1]);
+        const cropY = parseInt(cropMatch[2]);
+        const cropWidth = parseInt(cropMatch[3]);
+        const cropHeight = parseInt(cropMatch[4]);
+
+        // Convert marker from full-image coordinates to cropped-image coordinates
+        const markerXInCrop = afterMarker.x - cropX;
+        const markerYInCrop = afterMarker.y - cropY;
+
+        // Check if marker is within crop bounds
+        if (markerXInCrop >= 0 && markerXInCrop <= cropWidth &&
+            markerYInCrop >= 0 && markerYInCrop <= cropHeight) {
+          const markerWidth = 64;
+          const markerHeight = 64;
+
+          // Scale from cropped image space to display space
+          const scaleFactor = 647.4 / cropWidth;
+          const markerX = 1022.4 + (markerXInCrop * scaleFactor);
+          const markerY = 319 + (markerYInCrop * scaleFactor);
+
+          const afterMarkerArrow = {
+            type: "shape" as const,
+            paths: [{
+              d: `M 64 32 L 32 0 L 32 16 L 0 16 L 0 48 L 32 48 L 32 64 Z`,
+              fill: { color: "#aebb36" }
+            }],
+            top: markerY - (markerHeight / 2),
+            left: markerX - markerWidth,
+            width: markerWidth,
+            height: markerHeight,
+            viewBox: { top: 0, left: 0, width: markerWidth, height: markerHeight }
+          };
+          await addElement(afterMarkerArrow);
+          await delay(200);
+        } else {
+          console.log('[insertExampleIntoSlide] After marker outside crop bounds, skipping');
+        }
+      } else {
+        console.log('[insertExampleIntoSlide] Could not extract crop parameters from URL, skipping after marker');
+      }
+    }
+
+    // 8. Add before version date (if available)
+    if (beforeVersionDate) {
+      const beforeVersionElement = {
+        type: "text" as const,
+        children: [beforeVersionDate],
+        top: 855.1,
+        left: 394.6,
+        width: 322.3,
+        height: 42.3,
+        fontSize: 28,
+        fontWeight: "normal" as const,
+        fontFamily: "Aspekta",
+        color: "#131B3B",
+        textAlign: "center" as const
+      };
+      await addElement(beforeVersionElement);
+      await delay(200);
+    }
+
+    // 9. Add after version date (if available)
+    if (afterVersionDate) {
+      const afterVersionElement = {
+        type: "text" as const,
+        children: [afterVersionDate],
+        top: 855.1,
+        left: 1190.3,
+        width: 322.3,
+        height: 42.3,
+        fontSize: 28,
+        fontWeight: "normal" as const,
+        fontFamily: "Aspekta",
+        color: "#131B3B",
+        textAlign: "center" as const
+      };
+      await addElement(afterVersionElement);
+      await delay(200);
+    }
+
+    // 10. Add company logo to footer (if available)
+    const companyLogoUrl = config.companyLogoUrl || config.company_logo_url;
+    if (companyLogoUrl) {
+      try {
+        const logoUpload = await uploadWithRetry([companyLogoUrl], {
+          type: "image",
+          aiDisclosure: "none"
+        });
+
+        const companyLogoElement = {
+          type: "image" as const,
+          ref: logoUpload.ref,
+          altText: { text: "Company logo", decorative: true },
+          top: 934.6,
+          left: 841.5,
+          width: 58,
+          height: 58
+        };
+        await addElement(companyLogoElement);
+        await delay(200);
+      } catch (error) {
+        console.error('Error adding company logo:', error);
+      }
+    }
+
+    // 11. Add company name to footer (if available)
+    const companyName = config.companyName || config.company_name;
+    if (companyName) {
+      const companyNameElement = {
+        type: "text" as const,
+        children: [companyName],
+        top: 942.6,
+        left: 922.4,
+        width: 218.5,
+        height: 41.9,
+        fontSize: 36,
+        fontWeight: "bold" as const,
+        fontFamily: "Aspekta",
+        color: "#191919",
+        textAlign: "start" as const
+      };
+      await addElement(companyNameElement);
+      await delay(200);
+    }
+
+    console.log('[insertExampleIntoSlide] All elements added successfully');
+
+  } catch (error) {
+    console.error('Error inserting example into slide:', error);
     throw error;
   }
 }
@@ -972,7 +1348,7 @@ function createRectangle(x: number, y: number, w: number, h: number, color: stri
   };
 }
 
-function createText(text: string, x: number, y: number, w: number, fontSize: number, fontWeight: 'bold' | 'normal', color: string) {
+function createText(text: string, x: number, y: number, w: number, fontSize: number, fontWeight: 'bold' | 'normal', color: string, fontFamily: string = "Aspekta") {
   return {
     type: "text" as const,
     children: [text],
@@ -981,12 +1357,13 @@ function createText(text: string, x: number, y: number, w: number, fontSize: num
     width: w,
     fontSize,
     fontWeight,
+    fontFamily,
     color,
     textAlign: "start" as const
   };
 }
 
-function createRichtext(text: string, x: number, y: number, w: number, fontSize: number, fontWeight: 'bold' | 'normal', color: string, link: string) {
+function createRichtext(text: string, x: number, y: number, w: number, fontSize: number, fontWeight: 'bold' | 'normal', color: string, link: string, textAlign: 'start' | 'center' | 'end' = 'start', fontFamily: string = "Aspekta") {
   const range = createRichtextRange();
   range.appendText(text, {
     link: link,
@@ -1002,7 +1379,8 @@ function createRichtext(text: string, x: number, y: number, w: number, fontSize:
     left: x,
     width: w,
     fontSize,
-    textAlign: "start" as const
+    fontFamily,
+    textAlign: textAlign as const
   };
 }
 
@@ -1031,19 +1409,38 @@ export async function createTableSlide(
   }
 
   const config = parsed.config || parsed;
-  const title = config.title || 'Table';
+  const visualTitle = config.title || 'Table'; // Clean title for visual element on slide
   const rows = config.rows || [];
   const displayRows = rows.slice(0, 6); // Limit to 6 rows (optimized for 1920x1080)
 
-  console.log('Parsed table:', { title, rowCount: rows.length, displayRowCount: displayRows.length });
+  // Create enhanced title for left panel identification (but keep visual title clean)
+  let pageTitle = visualTitle;
+  if (displayRows.length > 0) {
+    const firstCompany = displayRows[0].companyName || displayRows[0].company || '';
+    const rowCount = rows.length;
+
+    if (firstCompany) {
+      // Create descriptive title for left panel: "Title - FirstCompany & N more"
+      if (rowCount > 1) {
+        pageTitle = `${visualTitle} - ${firstCompany} & ${rowCount - 1} more`;
+      } else {
+        pageTitle = `${visualTitle} - ${firstCompany}`;
+      }
+    } else {
+      // Fallback: just add row count
+      pageTitle = `${visualTitle} (${rowCount} ${rowCount === 1 ? 'item' : 'items'})`;
+    }
+  }
+
+  console.log('Parsed table:', { pageTitle, visualTitle, rowCount: rows.length, displayRowCount: displayRows.length });
 
   if (displayRows.length === 0) {
     throw new Error('No table data available');
   }
 
-  // 2. Create page and title
+  // 2. Create page with descriptive title (for left panel)
   await addPage({
-    title: title.substring(0, 255),
+    title: pageTitle.substring(0, 255),
     background: { color: '#ffffff' }
   });
 
@@ -1052,16 +1449,47 @@ export async function createTableSlide(
   // Add branding elements first (so they appear behind other content)
   await addBrandingElements(designWidth, designHeight, uploadWithRetry);
 
+  // Extract icon URL from first row (if available)
+  const firstRowIconUrl = displayRows.length > 0 ? (displayRows[0].icon_url || displayRows[0].iconUrl) : null;
+
+  // Add icon to left of title (if icon URL exists and uploadWithRetry is available)
+  if (firstRowIconUrl && uploadWithRetry) {
+    try {
+      console.log('[createTableSlide] Uploading icon:', firstRowIconUrl);
+      const iconUpload = await uploadWithRetry([firstRowIconUrl], {
+        type: "image",
+        aiDisclosure: "none"
+      });
+
+      const iconElement = {
+        type: "image" as const,
+        ref: iconUpload.ref,
+        altText: { text: "Event Icon", decorative: true },
+        top: 80.2,
+        left: 153.6,
+        width: 85.8,
+        height: 85.8
+      };
+      await addElement(iconElement);
+      await delay(300);
+    } catch (error) {
+      console.error('[createTableSlide] Error adding icon:', error);
+      // Continue without icon if it fails
+    }
+  }
+
+  // Use clean visual title for the text element on slide
   const titleElement = {
     type: "text" as const,
-    children: [title],
-    top: 70,
-    left: designWidth * 0.1,
-    width: designWidth * 0.8,
-    fontSize: 50,
+    children: [visualTitle],
+    top: 85,
+    left: 266.1,
+    width: designWidth * 0.9,
+    fontSize: 55,
     fontWeight: "bold" as const,
+    fontFamily: "Aspekta",
     color: "#191919",
-    textAlign: "center" as const
+    textAlign: "start" as const
   };
   await addElement(titleElement);
   await delay(300);
@@ -1097,24 +1525,32 @@ export async function createTableSlide(
   const headers = ['Company Name', 'Description', 'Period', 'Link'];
   const headerY = tableStartY;
 
-  // Header row elements
+  // Header row elements with custom colors per column
+  const headerColors = ['#132442', '#3E5DC2', '#ADBB36', '#D8E365']; // Navy, Blue, Lime, Light Lime
+
   for (let col = 0; col < 4; col++) {
     tableElements.push(createRectangle(
       tableX + colStarts[col],
       headerY,
       colWidths[col],
       headerHeight,
-      '#132442'
+      headerColors[col]
     ));
-    tableElements.push(createText(
-      headers[col],
-      tableX + colStarts[col] + 14,
-      headerY + 14,
-      colWidths[col] - 28,
-      24,
-      'bold',
-      '#FFFFFF'
-    ));
+
+    // Create centered text element
+    const headerTextElement = {
+      type: "text" as const,
+      children: [headers[col]],
+      top: headerY + (headerHeight / 2) - 13, // Vertically center (25px font / 2 = 12.5px offset, rounded to 13)
+      left: tableX + colStarts[col],
+      width: colWidths[col],
+      fontSize: 25,
+      fontWeight: "bold" as const,
+      fontFamily: "Aspekta",
+      color: "#FFFFFF",
+      textAlign: "center" as const
+    };
+    tableElements.push(headerTextElement);
   }
 
   // 5. Data rows elements
@@ -1143,37 +1579,86 @@ export async function createTableSlide(
       const textColor = col === 3 ? '#3B82F6' : '#191919';
       const linkUrl = col === 3 ? (row.compareViewerUrl || row.url || row.link || undefined) : undefined;
 
-      // Use richtext for column 3 with link, otherwise regular text
-      if (col === 3 && linkUrl) {
-        tableElements.push(createRichtext(
-          cellData[col],
-          tableX + colStarts[col] + 14,
-          rowY + 14,
-          colWidths[col] - 28,
-          18,
-          'normal',
-          textColor,
-          linkUrl
-        ));
+      // Special styling:
+      // - Company Name (col 0): 25px, bold, centered
+      // - Description (col 1): 18px, normal, left-aligned
+      // - Period (col 2): 18px, bold, centered
+      // - View Details (col 3): 18px, normal, centered (with link)
+      const isCompany = col === 0;
+      const isPeriod = col === 2;
+      const isLink = col === 3;
+      const fontSize = isCompany ? 25 : 18;
+      const fontWeight = (isCompany || isPeriod) ? 'bold' : 'normal';
+
+      // Vertical offset calculation:
+      // - Company (25px font): center vertically
+      // - Period/Link (18px font, centered): center vertically
+      // - Description (18px font, left-aligned): top padding
+      let verticalOffset = 14; // Default for description
+      if (isCompany) {
+        verticalOffset = (rowHeight / 2) - 13; // 25px font centered
+      } else if (isPeriod || isLink) {
+        verticalOffset = (rowHeight / 2) - 9; // 18px font centered
+      }
+
+      // Handle centered columns (Company, Period, View Details) and Description
+      if (col === 0 || col === 2 || col === 3) {
+        // Company name, Period, and View Details: centered both vertically and horizontally
+        if (col === 3 && linkUrl) {
+          // View Details with link - use richtext
+          const centeredRichtext = createRichtext(
+            cellData[col],
+            tableX + colStarts[col],
+            rowY + verticalOffset,
+            colWidths[col],
+            fontSize,
+            fontWeight,
+            textColor,
+            linkUrl,
+            'center',
+            'Aspekta'
+          );
+          tableElements.push(centeredRichtext);
+        } else {
+          // Company name, Period, or View Details without link - use regular text
+          const centeredTextElement = {
+            type: "text" as const,
+            children: [cellData[col]],
+            top: rowY + verticalOffset,
+            left: tableX + colStarts[col],
+            width: colWidths[col],
+            fontSize: fontSize,
+            fontWeight: fontWeight as const,
+            fontFamily: "Aspekta",
+            color: textColor,
+            textAlign: "center" as const
+          };
+          tableElements.push(centeredTextElement);
+        }
       } else {
+        // Description column - left-aligned
         tableElements.push(createText(
           cellData[col],
           tableX + colStarts[col] + 14,
-          rowY + 14,
+          rowY + verticalOffset,
           colWidths[col] - 28,
-          18,
-          'normal',
-          textColor
+          fontSize,
+          fontWeight,
+          textColor,
+          'Aspekta'
         ));
       }
     }
   }
 
-  // 6. Border elements - only divider between header and data
+  // 6. Border elements
   const totalHeight = headerHeight + (displayRows.length * rowHeight);
 
   // Divider between header and data
   tableElements.push(createBorderLine(tableX, tableStartY + headerHeight, totalWidth, 3, '#D1D5DB'));
+
+  // Bottom border of table (after last row)
+  tableElements.push(createBorderLine(tableX, tableStartY + totalHeight, totalWidth, 3, '#D1D5DB'));
 
   // Add all table elements in chunks with rate limiting
   console.log(`Adding ${tableElements.length} table elements in chunks`);
